@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 void cuda_aes_16b_encrypt(
-			  const int Mode m,
+			  const int m,
 			  int gridSize,
 			  int threadsPerBlock,
 			  cudaStream_t stream,
@@ -40,7 +40,7 @@ void cuda_aes_16b_encrypt(
 	      );
 
 void cuda_aes_16b_decrypt(
-			  const int Mode m,
+			  const int m,
 			  int gridSize,
 			  int threadsPerBlock,
 			  cudaStream_t stream,
