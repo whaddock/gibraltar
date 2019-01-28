@@ -1,4 +1,4 @@
-BASE_DIR := $(HOME)
+BASE_DIR := $(HOME)/git
 CEPH_DIR := $(BASE_DIR)/ceph/src
 SOURCE := $(BASE_DIR)/gibraltar/src
 EXAMPLES := $(BASE_DIR)/examples
@@ -21,6 +21,9 @@ TESTS=\
 #	$(EXAMPLES)/GibraltarCephTest
 
 PARACRYPT_OBJS := \
+	$(SOURCE)/CudaAES.o
+
+PARACRYPT_CUDA_OBJS := \
 	$(SOURCE)/CudaConstant.cu.o \
 	$(SOURCE)/CudaAes16B.cu.o
 
@@ -72,8 +75,12 @@ $(SOURCE)/CudaConstant.cu.o: $(SOURCE)/CudaConstant.cu
 $(SOURCE)/CudaAes16B.cu.o: $(SOURCE)/CudaAes16B.cu
 	$(NVCC) $(NVCC_FLAGS_) -c $< -o $@ $(INCL)
 
-paracrypt: $(PARACRYPT_OBJS) $(SOURCE)/libgibraltar.a
-	ar rv $(SOURCE)/libgibraltar.a $(PARACRYPT_OBJS)
+$(SOURCE)/CudaAES.o: $(SOURCE)/CudaAES.cpp
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+
+paracrypt: $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS) $(SOURCE)/libgibraltar.a
+	ar rv $(SOURCE)/libgibraltar.a $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS)
 clean:
 	rm -f $(LIB)/libjerasure.a $(SOURCE)/libgibraltar.a
 	rm -f $(TESTS)
+	rm -f $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS) 
