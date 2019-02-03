@@ -127,6 +127,7 @@ void paracrypt::CUDACipherDevice::memcpyFrom(void *dev, void *host,
     cudaStream_t stream = this->acessStream(stream_id);
     HANDLE_ERROR(cudaMemcpyAsync(host, dev, size, cudaMemcpyDeviceToHost, stream));
     HANDLE_ERROR(cudaEventRecord(this->cpyFromEvents[stream_id],stream));
+}
 
 namespace paracrypt {
     template <>

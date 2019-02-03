@@ -493,6 +493,25 @@ int paracrypt::CudaAES::encrypt(const unsigned char in[],
   this->getDevice()->memcpyTo((void *) in, this->data, dataSize,
 			      this->stream);
 
+  this->getEncryptFunction()(
+			     this->getMode(),
+			     gridSize,
+			     threadsPerBlock,
+			     this->getDevice()->acessStream(this->stream),
+			     n_blocks,
+			     this->getEncryptBlockOffset(),
+			     this->data,
+			     this->data, // TODO implement out-of-place version
+			     this->neighborsDev,
+			     this->getIV(),
+			     key,
+			     this->getKeyBits(rounds),
+			     this->getDeviceTe0(),
+			     this->getDeviceTe1(),
+			     this->getDeviceTe2(),
+			     this->getDeviceTe3()
+			     );
+
   this->getDevice()->memcpyFrom(this->data, (void *) out, dataSize,
 				this->stream);
 

@@ -18,21 +18,49 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#include "LimitedQueue.hpp"
 
 namespace paracrypt {
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
+template <typename T>
+LimitedQueue<T>::LimitedQueue(unsigned int limit)
+: limit(limit)
 {
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
+	this->queue = new std::queue<T>;
 }
 
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
+template <typename T>
+LimitedQueue<T>::~LimitedQueue() {
+	delete this->queue;
+}
+
+template <typename T>
+const unsigned int paracrypt::LimitedQueue<T>::getLimit() {
+	return this->limit;
+}
+
+template <typename T>
+const unsigned int paracrypt::LimitedQueue<T>::size() {
+	return this->queue->size();
+}
+
+template <typename T>
+bool paracrypt::LimitedQueue<T>::empty() {
+	return this->queue->empty();
+}
+
+template <typename T>
+void paracrypt::LimitedQueue<T>::enqueue(T v) {
+	if(this->size() > this->getLimit()) {
+	}
+	this->queue->push(v);
+}
+
+template <typename T>
+T paracrypt::LimitedQueue<T>::dequeue() {
+	T v = this->queue->front(); 
+	this->queue->pop();
+	return v;
 }
 
 } /* namespace paracrypt */

@@ -18,10 +18,11 @@
  *
  */
 
+#include "BlockCipher.hpp"
 #include <stdint.h>
 
 void cuda_aes_16b_encrypt(
-			  const int m,
+			  const paracrypt::BlockCipher::Mode m,
 			  int gridSize,
 			  int threadsPerBlock,
 			  cudaStream_t stream,
@@ -40,7 +41,7 @@ void cuda_aes_16b_encrypt(
 	      );
 
 void cuda_aes_16b_decrypt(
-			  const int m,
+			  const paracrypt::BlockCipher::Mode m,
 			  int gridSize,
 			  int threadsPerBlock,
 			  cudaStream_t stream,

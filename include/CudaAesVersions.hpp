@@ -18,21 +18,26 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#pragma once
+
+#include "CudaAES.hpp"
+#include "CudaAes16B.cuh"
 
 namespace paracrypt {
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
-{
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
-}
+#define VERSION(className) \
+    class className:public CudaAES { \
+    public: \
+    	className(); \
+    	className(className* aes); \
+    	~className(); \
+    protected: \
+    	int getThreadsPerCipherBlock(); \
+    	std::string getImplementationName(); \
+    	CudaAES::ef getEncryptFunction(); \
+    	CudaAES::df getDecryptFunction(); \
+    }; \
 
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
-}
+VERSION(CudaAES16B);
 
-} /* namespace paracrypt */
+}

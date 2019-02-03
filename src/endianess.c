@@ -18,21 +18,11 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#include "endianess.h"
 
-namespace paracrypt {
-
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
-{
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
+ void big(uint32_t* little, uint32_t* store, int n) {
+	int i;
+	for(i=0;i<n;i++) {
+		store[i] = htobe32(little[i]);
+	}
 }
-
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
-}
-
-} /* namespace paracrypt */

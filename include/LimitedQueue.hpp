@@ -18,21 +18,30 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#ifndef LIMITEDQUEUE_HPP_
+#define LIMITEDQUEUE_HPP_
+
+#include <queue>
 
 namespace paracrypt {
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
-{
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
-}
-
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
-}
+template <typename T>
+class LimitedQueue {
+private:
+	std::queue<T> *queue;
+	const unsigned int limit;
+public:
+	LimitedQueue(const unsigned int limit);
+	~LimitedQueue();
+	void enqueue(T v);
+	T dequeue();
+	const unsigned int getLimit();
+	const unsigned int size();
+	bool empty();
+};
 
 } /* namespace paracrypt */
+
+#include "LimitedQueue.tpp"
+
+#endif /* LIMITEDQUEUE_HPP_ */

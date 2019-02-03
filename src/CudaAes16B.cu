@@ -21,7 +21,7 @@
 #include "CudaAes16B.cuh"
 
 __global__ void __cuda_aes_16b_encrypt__(
-		const int m,
+		const paracrypt::BlockCipher::Mode m,
 		unsigned int n,
 		uint32_t offset,
 		const uint32_t* d,
@@ -322,21 +322,21 @@ __global__ void __cuda_aes_16b_encrypt__(
 }
 
 __global__ void __cuda_aes_16b_decrypt__(
-        const int m,
-		unsigned int n,
-		unsigned int offset,
-		const uint32_t* d,
-		uint32_t* out,
-		uint32_t* neigh,
-		uint32_t* iv,
-		uint32_t* k,
-		const int key_bits,
-		uint32_t* T0,
-		uint32_t* T1,
-		uint32_t* T2,
-		uint32_t* T3,
-		uint8_t* T4
-    )
+const paracrypt::BlockCipher::Mode m,	
+unsigned int n,
+unsigned int offset,
+const uint32_t* d,
+uint32_t* out,
+uint32_t* neigh,
+uint32_t* iv,
+uint32_t* k,
+const int key_bits,
+uint32_t* T0,
+uint32_t* T1,
+uint32_t* T2,
+uint32_t* T3,
+uint8_t* T4
+)
 {
 	unsigned int bi = ((blockIdx.x * blockDim.x) + threadIdx.x); // block index
 	unsigned int p;
@@ -617,7 +617,7 @@ __global__ void __cuda_aes_16b_decrypt__(
 }
 
 void cuda_aes_16b_encrypt(
-			  const int m,
+			  const paracrypt::BlockCipher::Mode m,
 	  	  	  int gridSize,
 	  	  	  int threadsPerBlock,
 	  	  	  cudaStream_t stream,
@@ -653,7 +653,7 @@ void cuda_aes_16b_encrypt(
 }
 
 void cuda_aes_16b_decrypt(
-			  const int m,
+		          const paracrypt::BlockCipher::Mode m,
 	  	  	  int gridSize,
 	  	  	  int threadsPerBlock,
 	  	  	  cudaStream_t stream,

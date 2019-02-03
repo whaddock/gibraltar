@@ -18,21 +18,12 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#include <endian.h>
+#include <stdint.h>
 
-namespace paracrypt {
+#ifndef HEADER_ENDIANESS_H
+#define HEADER_ENDIANESS_H
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
-{
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
-}
+void big(uint32_t* little, uint32_t* store, int n);
 
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
-}
-
-} /* namespace paracrypt */
+#endif /* !HEADER_ENDIANESS_H */

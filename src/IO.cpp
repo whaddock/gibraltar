@@ -18,21 +18,32 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#include <IO.hpp>
+#include <iostream>
 
 namespace paracrypt {
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
-{
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
+const std::streampos paracrypt::IO::fileSize( std::fstream *file ){
+	std::streampos save = file->tellg();
+
+    file->seekg( 0, std::ios::end );
+    const std::streampos fsize = file->tellg();
+
+    file->seekg(save);
+    return fsize;
 }
 
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
+const std::streampos paracrypt::IO::fileSize( std::ifstream *file ){
+	return fileSize((std::fstream*)file);
+}
+
+const std::streampos paracrypt::IO::fileSize( std::string fileName ){
+	std::ifstream file(fileName.c_str(),std::fstream::binary);
+	if(!file) {
+	  std::cerr << "Error reading file " << fileName << std::endl;
+	}
+	std::streampos size = fileSize(&file);
+	return size;
 }
 
 } /* namespace paracrypt */

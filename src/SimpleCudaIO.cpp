@@ -18,21 +18,33 @@
  *
  */
 
+#include "SimpleCudaIO.hpp"
 #include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
 
 namespace paracrypt {
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
+SimpleCudaIO::SimpleCudaIO(
+		std::string inFilename,
+		std::string outFilename,
+		unsigned int blockSize,
+		rlim_t bufferSizeLimit,
+		std::streampos begin,
+		std::streampos end
+) : paracrypt::SimpleIO::SimpleIO(inFilename, outFilename, blockSize, begin, end)
 {
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
+	this->pin = new CudaPinned();
+	this->construct(bufferSizeLimit);
 }
 
-void paracrypt::CudaPinned::free(void* ptr)
+SimpleCudaIO::~SimpleCudaIO()
 {
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
+	this->destruct();
+	delete this->pin;
+}
+
+Pinned* paracrypt::SimpleCudaIO::getPinned()
+{
+	return this->pin;
 }
 
 } /* namespace paracrypt */

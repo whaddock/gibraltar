@@ -18,21 +18,31 @@
  *
  */
 
-#include "CudaPinned.hpp"
-#include "CUDACipherDevice.hpp"
+#ifndef CUDASHAREDIO_HPP_
+#define CUDASHAREDIO_HPP_
+
+#include "SharedIO.hpp"
 
 namespace paracrypt {
 
-bool paracrypt::CudaPinned::alloc(void** ptr, std::streampos size)
-{
-	cudaError_t e = cudaHostAlloc(ptr,size,0);
-	//	HANDLE_PRINT_ERROR_NUMBER(e);
-	return e == cudaSuccess;
-}
-
-void paracrypt::CudaPinned::free(void* ptr)
-{
-  //	HANDLE_ERROR(cudaFreeHost(ptr));
-}
+class CudaSharedIO: public SharedIO {
+private:
+	Pinned* pin;
+protected:
+	Pinned* getPinned();
+public:
+	CudaSharedIO(
+			std::string inFilename,
+			std::string outFilename,
+			unsigned int blockSize,
+			unsigned int nChunks,
+			rlim_t bufferSizeLimit = AUTO_IO_BUFFER_LIMIT,
+			std::streampos begin = NO_RANDOM_ACCESS,
+			std::streampos end = NO_RANDOM_ACCESS
+	);
+	~CudaSharedIO();
+};
 
 } /* namespace paracrypt */
+
+#endif /* CUDASHAREDIO_HPP_ */
