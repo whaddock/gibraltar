@@ -168,7 +168,7 @@ namespace paracrypt {
 			this->verbosity = verbosity;
 		}
 
-		void staggingLimit(rlim_t limit) {
+		void setStagingLimit(rlim_t limit) {
 			this->stagingLimit = limit;
 		}
 

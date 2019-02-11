@@ -51,12 +51,15 @@ int cudaInitialized = 0;
 
 struct gpu_context_t {
 	CUdevice dev;
-	CUmodule module;
+	CUmodule module_ec;
 	CUcontext pCtx;
 	CUfunction checksum;
 	CUfunction recover_sparse;
 	CUfunction recover;
 	CUdeviceptr buffers;
+	CUmodule module_encrypt;
+	CUfunction encrypt;
+	CUfunction decrypt;
 };
 
 typedef struct gpu_context_t * gpu_context;
@@ -188,47 +191,25 @@ gib_init_cuda(int n, int m, gib_context *c)
 	int filename_len = strlen("/tmp") +
 		strlen("/gib_cuda_+.ptx") + log10(n)+1 + log10(m)+1 + 1;
 	char *filename = (char *)malloc(filename_len);
-	sprintf(filename, "%s/gib_cuda_%i+%i.ptx", "/tmp", n, m);
+	//	sprintf(filename, "%s/gib_cuda_%i+%i.ptx", "/tmp", n, m);
+	sprintf(filename, "%s/gib_cuda_all.cubin", "/tmp", n, m);
 
 	FILE *fp = fopen(filename, "r");
 	if (fp == NULL) {
-		/* Compile the ptx and open it */
-		int pid = fork();
-		if (pid == -1) {
-			perror("Forking for nvcc");
-			exit(-1);
-		}
-		if (pid == 0) {
-			gib_cuda_compile(n, m, filename); /* never returns */
-		}
-		int status;
-		wait(&status);
-		if (status != 0) {
-			printf("Waiting for the compiler failed.\n");
-			printf("The exit status was %i\n",
-			       WEXITSTATUS(status));
-			printf("The child did%s exit normally.\n",
-			       (WIFEXITED(status)) ? "" : " NOT");
-
-			exit(-1);
-		}
-		fp = fopen(filename, "r");
-		if (fp == NULL) {
-			perror(filename);
-			exit(-1);
-		}
+	  perror("Forking for nvcc");
+	  exit(-1);
 	}
 	fclose(fp);
 
 	/* If we got here, the ptx file exists.  Use it. */
-	ERROR_CHECK_FAIL(cuModuleLoad(&(gpu_c->module), filename));
+	ERROR_CHECK_FAIL(cuModuleLoad(&(gpu_c->module_ec), filename));
 	ERROR_CHECK_FAIL(
 		cuModuleGetFunction(&(gpu_c->checksum),
-				    (gpu_c->module),
+				    (gpu_c->module_ec),
 				    "_Z14gib_checksum_dP11shmem_bytesi"));
 	ERROR_CHECK_FAIL(
 		cuModuleGetFunction(&(gpu_c->recover),
-				    (gpu_c->module),
+				    (gpu_c->module_ec),
 				    "_Z13gib_recover_dP11shmem_bytesii"));
 
 	/* Initialize the math libraries */
@@ -238,17 +219,34 @@ gib_init_cuda(int n, int m, gib_context *c)
 
 	/* Initialize/Allocate GPU-side structures */
 	CUdeviceptr log_d, ilog_d, F_d;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&log_d, NULL, gpu_c->module,
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&log_d, NULL, gpu_c->module_ec,
 					   "gf_log_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(log_d, gib_gf_log, 256));
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&ilog_d, NULL, gpu_c->module,
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&ilog_d, NULL, gpu_c->module_ec,
 					   "gf_ilog_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(ilog_d, gib_gf_ilog, 256));
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, m*n));
 #if !GIB_USE_MMAP
 	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers), (n+m)*gib_buf_size));
 #endif
+
+	CUdeviceptr aes_key;
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "aes_key"));
+
+	CUdeviceptr encrypt, decrypt;
+	// _Z24__cuda_aes_16b_encrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_
+	ERROR_CHECK_FAIL(
+		cuModuleGetFunction(&(gpu_c->encrypt),
+				    (gpu_c->module_ec),
+				    "_Z24__cuda_aes_16b_encrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_"));
+
+	// _Z24__cuda_aes_16b_decrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_S4_Ph(
+	ERROR_CHECK_FAIL(
+		cuModuleGetFunction(&(gpu_c->decrypt),
+				    (gpu_c->module_ec),
+				    "_Z24__cuda_aes_16b_decrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_S4_Ph"));
+
 	ERROR_CHECK_FAIL(cuCtxPopCurrent((&gpu_c->pCtx)));
 	free(filename);
 
@@ -347,14 +345,14 @@ gib_init_cuda2(int n, int m, unsigned int chunk_size, gib_context *c)
 	fclose(fp);
 
 	/* If we got here, the ptx file exists.  Use it. */
-	ERROR_CHECK_FAIL(cuModuleLoad(&(gpu_c->module), filename));
+	ERROR_CHECK_FAIL(cuModuleLoad(&(gpu_c->module_ec), filename));
 	ERROR_CHECK_FAIL(
 		cuModuleGetFunction(&(gpu_c->checksum),
-				    (gpu_c->module),
+				    (gpu_c->module_ec),
 				    "_Z14gib_checksum_dP11shmem_bytesi"));
 	ERROR_CHECK_FAIL(
 		cuModuleGetFunction(&(gpu_c->recover),
-				    (gpu_c->module),
+				    (gpu_c->module_ec),
 				    "_Z13gib_recover_dP11shmem_bytesii"));
 
 	/* Initialize the math libraries */
@@ -364,13 +362,13 @@ gib_init_cuda2(int n, int m, unsigned int chunk_size, gib_context *c)
 
 	/* Initialize/Allocate GPU-side structures */
 	CUdeviceptr log_d, ilog_d, F_d;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&log_d, NULL, gpu_c->module,
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&log_d, NULL, gpu_c->module_ec,
 					   "gf_log_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(log_d, gib_gf_log, 256));
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&ilog_d, NULL, gpu_c->module,
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&ilog_d, NULL, gpu_c->module_ec,
 					   "gf_ilog_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(ilog_d, gib_gf_ilog, 256));
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, m*n));
 
 	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers), (n+m)*chunk_size));
@@ -400,7 +398,7 @@ _gib_destroy(gib_context c)
 #if !GIB_USE_MMAP
 	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 #endif
-	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
+	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module_ec));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
 	return GIB_SUC;
 }
@@ -421,7 +419,7 @@ _gib_destroy2(gib_context c)
 
 	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 
-	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
+	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module_ec));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
 	return GIB_SUC;
 }
@@ -480,7 +478,7 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 	unsigned char F[256*256];
 	gib_galois_gen_F(F, c->m, c->n);
 	CUdeviceptr F_d;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, (c->m)*(c->n)));
 
 #if !GIB_USE_MMAP
@@ -545,7 +543,7 @@ _gib_generate2(char **buffers, unsigned int buf_size, gib_context c)
 	unsigned char F[256*256];
 	gib_galois_gen_F(F, c->m, c->n);
 	CUdeviceptr F_d;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoDAsync(F_d, F, (c->m)*(c->n), 0));
 
 	/* Copy the buffers to memory */
@@ -631,7 +629,7 @@ _gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
 	gpu_context gpu_c = (gpu_context) c->acc_context;
 
 	CUdeviceptr F_d;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, modA+n*n, (c->m)*(c->n)));
 
 #if !GIB_USE_MMAP
@@ -710,7 +708,7 @@ _gib_recover2(char **buffers, unsigned int buf_size, unsigned int *buf_ids, int 
 	gpu_context gpu_c = (gpu_context) c->acc_context;
 
 	CUdeviceptr F_d;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoDAsync(F_d, modA+n*n, (c->m)*(c->n), 0));
 
 	for (i = 0;i < n;i++)

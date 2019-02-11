@@ -28,10 +28,10 @@
 
 #define BUFFER_SIZE_LIMIT 60*1000*1000 // 60MB staging area as limit
 
-rlim_t paracrypt::Launcher::staggingLimit = 0;
-void paracrypt::Launcher::limitStagging(rlim_t limit)
+rlim_t paracrypt::Launcher::stagingLimit = 0;
+void paracrypt::Launcher::setStagingLimit(rlim_t limit)
 {
-	staggingLimit = limit;
+	stagingLimit = limit;
 }
 
 // Calls SharedIO.construct() with limited memory
@@ -59,8 +59,8 @@ paracrypt::SharedIO* paracrypt::Launcher::newAdjustedSharedIO(
 		totalGlobalMem += devices[d]->getDeviceProperties()->totalGlobalMem;
 	}
 	memLimit = std::min(memLimit,totalGlobalMem);
-	if(staggingLimit != 0)
-		memLimit = std::min(memLimit,staggingLimit);
+	if(stagingLimit != 0)
+		memLimit = std::min(memLimit,stagingLimit);
 
 	io = new CudaSharedIO(inFilename,outFilename,blockSize,totalConcurrentKernels,memLimit,begin,end);
 	return io;

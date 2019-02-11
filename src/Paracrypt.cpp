@@ -75,7 +75,7 @@ void paracrypt::exec(paracrypt::config_t c) {
 		hexdump("iv",c.iv,c.ivBits/8);
 
 	if(c.stagingLimit != 0) {
-		paracrypt::Launcher::limitStagging(c.stagingLimit);
+		paracrypt::Launcher::setStagingLimit(c.stagingLimit);
 	}
 
 	if(c.kernelParalellismLimit != -1) {

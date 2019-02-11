@@ -25,6 +25,14 @@ TESTS=\
 #	$(EXAMPLES)/GibraltarTest-2	\
 #	$(EXAMPLES)/GibraltarCephTest
 
+CHECKSUM_OBJ=\
+	$(SOURCE)/gib_cuda_checksum.o \
+	$(SOURCE)/CudaAes16B.o
+
+CHECKSUM_SRC=\
+	$(SOURCE)/gib_cuda_checksum.cu \
+	$(SOURCE)/CudaAes16B.cu
+
 PARACRYPT_OBJS := \
 	$(SOURCE)/CUDACipherDevice.o \
 	$(SOURCE)/BlockCipher.o \
@@ -49,6 +57,10 @@ PARACRYPT_CUDA_OBJS := \
 	$(SOURCE)/CudaConstant.cu.o \
 	$(SOURCE)/CudaAes16B.cu.o
 
+PARACRYPT_PTX := \
+	$(SOURCE)/CudaConstant.ptx \
+	$(SOURCE)/CudaAes16B.ptx
+
 # Expect CUDA library include directive to already be in CPPFLAGS,
 # e.g. -I/usr/local/cuda/include
 INCL := -I/usr/local/cuda/include
@@ -57,7 +69,7 @@ INCL += -I$(CEPH_DIR)
 
 CPPFLAGS := -DGIB_USE_MMAP=1
 CPPFLAGS += -DLARGE_ENOUGH=1024*4
-CPPFLAGS += -pg -std=c++11
+CPPFLAGS += -std=c++11
 
 # Expect CUDA library link directive to already be in LDFLAGS,
 # .e.g. -L/usr/local/cuda/lib
@@ -75,7 +87,7 @@ STATICLIBS += $(CEPH_DIR)/.libs/libglobal.a
 CFLAGS += -Wall $(INCL)
 LDLIBS=-lcuda -lcudart -lrados -lprofiler
 
-all: $(LIB)/libjerasure.a $(SOURCE)/libgibraltar.a paracrypt benchmark
+all: $(LIB)/libjerasure.a $(SOURCE)/libgibraltar.a paracrypt all-benchmarks ptx
 
 $(SOURCE)/libgibraltar.a: $(SOURCE)/libgibraltar.a($(SRC:.c=.o))
 
@@ -86,6 +98,14 @@ benchmark: $(EXAMPLES)/benchmark.cc $(SOURCE)/libgibraltar.a
 	$(EXAMPLES)/benchmark.cc $(SOURCE)/libgibraltar.a  $(LDLIBS) \
 	$(LIB)/libjerasure.a -o $(EXAMPLES)/benchmark 
 
+ec-enc-benchmark: $(EXAMPLES)/ec-enc-benchmark.cc $(SOURCE)/gib_cuda_all.cubin
+	g++ $(CPPFLAGS) $(LDFLAGS) $(STATICLIBS) $(INCL) \
+	$(EXAMPLES)/ec-enc-benchmark.cc $(LDLIBS) \
+	$(SOURCE)/libgibraltar.a \
+	$(LIB)/libjerasure.a -o $(EXAMPLES)/ec-enc-benchmark 
+
+all-benchmarks: benchmark ec-enc-benchmark
+
 $(EXAMPLES)/GibraltarCephTest: $(SOURCE)/libgibraltar.a
 	g++ $(CPPFLAGS) $(LDFLAGS) $(STATICLIBS) $(INCL) \
 		$(EXAMPLES)/GibraltarCephTest.cc $(SOURCE)/libgibraltar.a  $(LDLIBS) \
@@ -95,66 +115,86 @@ $(LIB)/libjerasure.a:
 	cd $(LIB)/Jerasure-1.2 && make
 	ar rus $(LIB)/libjerasure.a $(LIB)/Jerasure-1.2/*.o
 
+CHECKSUM_OBJ: $(CHECKSUM_SRC)
+	$(NVCC) $(NVCC_FLAGS_) -DN=2 -DM=2 --device-c  \
+	--output-directory $(SOURCE) \
+	$(INCL) $(CHECKSUM_SRC) 
+
+$(SOURCE)/gib_cuda_all.cubin: CHECKSUM_OBJ
+	$(NVCC) $(NVCC_FLAGS_) --device-link \
+	$(SOURCE)/gib_cuda_checksum.o \
+	$(SOURCE)/CudaAes16B.o --cubin \
+	--output-directory $(SOURCE)/ \
+	--output-file gib_cuda_all.cubin
+
 # Paracrypt code
 $(SOURCE)/CudaConstant.cu.o: $(SOURCE)/CudaConstant.cu
 	$(NVCC) $(NVCC_FLAGS_) -c $< -o $@ $(INCL)
 
+$(SOURCE)/CudaConstant.ptx: $(SOURCE)/CudaConstant.cu
+	$(NVCC) $(NVCC_FLAGS_) -ptx $< -o $@ $(INCL)
+
 $(SOURCE)/CudaAes16B.cu.o: $(SOURCE)/CudaAes16B.cu
 	$(NVCC) $(NVCC_FLAGS_) -c $< -o $@ $(INCL)
 
+$(SOURCE)/CudaAes16B.ptx: $(SOURCE)/CudaAes16B.cu
+	$(NVCC) $(NVCC_FLAGS_) -ptx $< -o $@ $(INCL)
+
 $(SOURCE)/CUDACipherDevice.o: $(SOURCE)/CUDACipherDevice.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/BlockCipher.o: $(SOURCE)/BlockCipher.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/CUDABlockCipher.o: $(SOURCE)/CUDABlockCipher.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/CudaAesVersions.o: $(SOURCE)/CudaAesVersions.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/AES.o: $(SOURCE)/AES.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/endianess.o: $(SOURCE)/endianess.c
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/AES_key_schedule.o: $(SOURCE)/AES_key_schedule.c
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/IO.o: $(SOURCE)/IO.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/BlockIO.o: $(SOURCE)/BlockIO.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/SimpleIO.o: $(SOURCE)/SimpleIO.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/SimpleCudaIO.o: $(SOURCE)/SimpleCudaIO.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/SharedIO.o: $(SOURCE)/SharedIO.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/CudaSharedIO.o: $(SOURCE)/CudaSharedIO.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/Pinned.o: $(SOURCE)/Pinned.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/CudaPinned.o: $(SOURCE)/CudaPinned.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/CudaAES.o: $(SOURCE)/CudaAES.cpp
-	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++ $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/Launcher.o:
-	g++  $(SOURCE)/Launcher.cpp $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++  $(SOURCE)/Launcher.cpp $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
 
 $(SOURCE)/Paracrypt.o:
-	g++  $(SOURCE)/Paracrypt.cpp $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@ $(INCL)
+	g++  $(SOURCE)/Paracrypt.cpp $(CPPFLAGS) $(LDFLAGS) $(INCL) -c $< -o $@
+
+ptx: $(PARACRYPT_PTX)
 
 paracrypt: $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS) $(SOURCE)/libgibraltar.a
 	ar rv $(SOURCE)/libgibraltar.a $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS)
@@ -165,5 +205,6 @@ paracrypt: $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS) $(SOURCE)/libgibraltar.a
 clean:
 	rm -f $(LIB)/libjerasure.a $(SOURCE)/libgibraltar.a
 	rm -f $(SOURCE)/*.o
+	rm -f $(SOURCE)/*.ptx
 	rm -f $(TESTS)
 	rm -f $(PARACRYPT_OBJS) $(PARACRYPT_CUDA_OBJS) 

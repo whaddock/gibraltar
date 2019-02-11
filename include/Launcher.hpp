@@ -56,10 +56,10 @@ public:
 			std::streampos end = NO_RANDOM_ACCESS
 	);
 
-	static void limitStagging(rlim_t limit);
+	static void setStagingLimit(rlim_t limit);
 
 private:
-	static rlim_t staggingLimit;
+	static rlim_t stagingLimit;
 	// IMPORTANT: Returned CudaAES objects have to be freed
 	//  CudaAES_t is a cipher class which has CudaAES as a base.
 	template < class CudaAES_t >
