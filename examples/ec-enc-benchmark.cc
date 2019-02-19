@@ -22,13 +22,14 @@
 using namespace std;
 
 #ifndef LARGE_ENOUGH
-#define LARGE_ENOUGH 1024 * 1024
+// 1024 * 1024 * 4 * 144
+#define LARGE_ENOUGH 1024*1024
 #endif
 #ifndef min_test
-#define min_test 2
+#define min_test 8
 #endif
 #ifndef max_test
-#define max_test 16
+#define max_test 2
 #endif
 
 /*
@@ -112,7 +113,7 @@ main(int argc, char **argv)
   conf.streamLimit(4);
 
   // Call a gib_cuda function.
-  for (int m = min_test; m <= min_test; m++) {
+  for (int m = max_test; m <= max_test; m++) {
     for (int n = min_test; n <= min_test; n++) {
       printf("%8i %8i ", n, m);
       for (int j = 0; j < 3; j++) {

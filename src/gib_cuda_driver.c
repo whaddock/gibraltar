@@ -231,21 +231,21 @@ gib_init_cuda(int n, int m, gib_context *c)
 	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers), (n+m)*gib_buf_size));
 #endif
 
-	CUdeviceptr aes_key;
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "aes_key"));
+	//	CUdeviceptr aes_key;
+	//	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module_ec, "aes_key"));
 
-	CUdeviceptr encrypt, decrypt;
+	//	CUdeviceptr encrypt, decrypt;
 	// _Z24__cuda_aes_16b_encrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_
-	ERROR_CHECK_FAIL(
-		cuModuleGetFunction(&(gpu_c->encrypt),
-				    (gpu_c->module_ec),
-				    "_Z24__cuda_aes_16b_encrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_"));
+	//	ERROR_CHECK_FAIL(
+	//		cuModuleGetFunction(&(gpu_c->encrypt),
+	//				    (gpu_c->module_ec),
+	//				    "_Z24__cuda_aes_16b_encrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_"));
 
 	// _Z24__cuda_aes_16b_decrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_S4_Ph(
-	ERROR_CHECK_FAIL(
-		cuModuleGetFunction(&(gpu_c->decrypt),
-				    (gpu_c->module_ec),
-				    "_Z24__cuda_aes_16b_decrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_S4_Ph"));
+	//	ERROR_CHECK_FAIL(
+	//		cuModuleGetFunction(&(gpu_c->decrypt),
+	//				    (gpu_c->module_ec),
+	//				    "_Z24__cuda_aes_16b_decrypt__N9paracrypt11BlockCipher4ModeEjjPKjPjS4_S4_S4_iS4_S4_S4_S4_Ph"));
 
 	ERROR_CHECK_FAIL(cuCtxPopCurrent((&gpu_c->pCtx)));
 	free(filename);
@@ -427,8 +427,11 @@ _gib_destroy2(gib_context c)
 static int
 _gib_alloc(void **buffers, int buf_size, int *ld, gib_context c)
 {
-	ERROR_CHECK_FAIL(
-		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+  /*        fprintf(stderr, "_gib_alloc: \nbuf_size: %i, \nld: %i",
+   *          buf_size, ld);
+   *	ERROR_CHECK_FAIL(
+   *		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+   */
 #if GIB_USE_MMAP
 	ERROR_CHECK_FAIL(cuMemHostAlloc(buffers, (c->n+c->m)*buf_size,
 					CU_MEMHOSTALLOC_DEVICEMAP));

@@ -67,8 +67,8 @@ INCL := -I/usr/local/cuda/include
 INCL += -I$(BASE_DIR)/gibraltar/include
 INCL += -I$(CEPH_DIR)
 
-CPPFLAGS := -DGIB_USE_MMAP=1
-CPPFLAGS += -DLARGE_ENOUGH=1024*4
+CPPFLAGS := -DGIB_USE_MMAP=0
+CPPFLAGS += -DLARGE_ENOUGH=4*1024
 CPPFLAGS += -std=c++11
 
 # Expect CUDA library link directive to already be in LDFLAGS,

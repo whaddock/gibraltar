@@ -342,7 +342,7 @@ int main(int ac, char* av[])
     		}
     		// MiB -> bytes
     		rlim_t bytes = limit * 1024 * 1024;
-    		conf.staggingLimit(bytes);
+    		conf.setStagingLimit(bytes);
     	}
     	if(vm.count("stream-limit")) {
     		int limit = vm["stream-limit"].as<int>();
