@@ -24,7 +24,7 @@
 
 /* Size of each GPU buffer; n+m will be allocated */
 #if !GIB_USE_MMAP
-int gib_buf_size = 1024*64;
+int gib_buf_size = 1024*1024*8;
 #endif
 
 const char env_error_str[] =

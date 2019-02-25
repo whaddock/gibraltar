@@ -19,7 +19,7 @@ __constant__ byte inv_d[N*N];
  * for this, I want to easily experiment with the others.
  */
 typedef int fetch;
-#define nthreadsPerBlock 128
+#define nthreadsPerBlock 1024
 
 /* These quantities must be hand-recalculated, as the compiler doesn't seem to
  * always do such things at compile time.

@@ -21,12 +21,19 @@ using namespace std;
 #ifndef LARGE_ENOUGH
 #define LARGE_ENOUGH 1024 * 1024
 #endif
-#ifndef min_test
-#define min_test 2
+#ifndef min_shards
+#define min_shards 120
 #endif
-#ifndef max_test
-#define max_test 16
+#ifndef max_shards
+#define max_shards 120
 #endif
+#ifndef min_coding
+#define min_coding 16
+#endif
+#ifndef max_coding
+#define max_coding 16
+#endif
+
 
 double
 etime(void)
@@ -53,10 +60,10 @@ main(int argc, char **argv)
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
 	printf("%%      n        m datasize chk_tput rec_tput chk_tput rec_tput chk_tput rec_tput\n");
 
-	for (int m = min_test; m <= max_test; m++) {
-		for (int n = min_test; n <= max_test; n++) {
+	for (int m = min_coding; m <= max_coding; m++) {
+		for (int n = min_shards; n <= max_shards; n++) {
 			printf("%8i %8i ", n, m);
-			for (int j = 0; j < 3; j++) {
+			for (int j = 0; j < 1; j++) {
 				double chk_time, dns_time;
 				gib_context_t * gc;
 
