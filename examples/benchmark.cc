@@ -49,6 +49,7 @@ struct opts {
 	int k;
 	int m;
 	unsigned niters;
+        int size;
 	int action;
 	int backend;
 	const char *cache_dir;
@@ -65,7 +66,9 @@ print_usage(const char *progname)
 	fprintf(stderr, "    -k: Number of data buffers\n");
 	fprintf(stderr, "    -m: Number of coding buffers\n");
 	fprintf(stderr, "    -b: Backend to benchmark. "
-		"Available backends:\n");
+         	    	"Available backends:\n");
+	fprintf(stderr, "    -d: Size of each shard in bytes (Default: %d). ",
+                        1024 * 1024);
 	for (int i = 0; i < last_backend; i++) {
 		printf("        %s\n", backend_names[i]);
 	}
@@ -105,6 +108,7 @@ parse_args(int argc, char **argv, struct opts *opts)
 	opts->k = -1;
 	opts->m = -1;
 	opts->niters = 1;
+	opts->size = 1024 * 1024;
 	opts->action = 0;
 	opts->backend = last_backend;
 	opts->cache_dir = NULL;
@@ -112,7 +116,7 @@ parse_args(int argc, char **argv, struct opts *opts)
 
 	int opt;
 	unsigned u;
-	while ((opt = getopt(argc, argv, "k:m:i:hb:a:c:s:")) != -1) {
+	while ((opt = getopt(argc, argv, "k:m:i:hb:a:c:s:d:")) != -1) {
 		switch (opt) {
 		case 'b':
 			for (int i = 0; i < last_backend; i++) {
@@ -141,6 +145,7 @@ parse_args(int argc, char **argv, struct opts *opts)
 		case 'k':
 		case 'm':
 		case 'i':
+		case 'd':
 			/* Small positive integer options */
 			if (strtou(optarg, &u) || u > INT_MAX) {
 				fprintf(stderr, "Invalid value for -%c: %s\n",
@@ -154,6 +159,8 @@ parse_args(int argc, char **argv, struct opts *opts)
 				opts->m = (int)u;
 			} else if (opt == 'i') {
 				opts->niters = (int)u;
+			} else if (opt == 'd') {
+				opts->size = (int)u;
 			}
 			break;
 		case 'h':
@@ -222,7 +229,7 @@ main(int argc, char **argv)
 	double tmptime;
 
 	struct gib_cuda_options cuda_opts;
-	cuda_opts.use_mmap = 1;
+	cuda_opts.use_mmap = 0;
 	cuda_opts.kernel_src_dir = opts.src_dir;
 	cuda_opts.kernel_cache_dir = opts.cache_dir;
 
@@ -249,7 +256,7 @@ main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
-	int size = 1024 * 1024;
+	int size = opts.size;
 	void *data;
 	gib_alloc(&data, size, &size, gc);
 
@@ -318,7 +325,7 @@ main(int argc, char **argv)
 
 	double size_mb = size * n / 1024.0 / 1024.0;
 
-	printf("%lf\n", op_time / opts.niters);
+	printf("%lf, %lf\n", size_mb, op_time / opts.niters);
 
 	gib_free(data, gc);
 	gib_free(dense_data, gc);
