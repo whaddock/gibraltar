@@ -229,7 +229,7 @@ main(int argc, char **argv)
 	double tmptime;
 
 	struct gib_cuda_options cuda_opts;
-	cuda_opts.use_mmap = 0;
+	cuda_opts.use_mmap = 1;
 	cuda_opts.kernel_src_dir = opts.src_dir;
 	cuda_opts.kernel_cache_dir = opts.cache_dir;
 
