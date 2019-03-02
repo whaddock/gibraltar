@@ -12,11 +12,11 @@ TESTS=\
 
 # Expect CUDA library include directive to already be in CPPFLAGS,
 # e.g. -I/usr/local/cuda/include
-CPPFLAGS += -Iinc/
+CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ -g
 
 # Expect CUDA library link directive to already be in LDFLAGS,
 # .e.g. -L/usr/local/cuda/lib
-LDFLAGS += -Llib/
+LDFLAGS += -Llib/ -L/usr/local/cuda/lib64/
 
 CFLAGS += -Wall
 LDLIBS=-lcuda -ljerasure

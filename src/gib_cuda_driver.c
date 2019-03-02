@@ -18,13 +18,13 @@
 /* If compute capability 1.3 or higher is available, this should be set.
  * If it's set by the user at compile time, respect it.
  */
-#ifndef GIB_USE_MMAP
-#define GIB_USE_MMAP 1
-#endif
+//#ifndef GIB_USE_MMAP
+//#define GIB_USE_MMAP 1
+//#endif
 
 /* Size of each GPU buffer; n+m will be allocated */
 #if !GIB_USE_MMAP
-int gib_buf_size = 1024*1024;
+int gib_buf_size = 1024*1024*8;
 #endif
 
 const char env_error_str[] =
@@ -43,6 +43,7 @@ const char env_error_str[] =
 #include <stdio.h>
 #include <string.h>
 #include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
 #include <cuda.h>
 #include <math.h>
 
@@ -59,6 +60,11 @@ struct gpu_context_t {
 };
 
 typedef struct gpu_context_t * gpu_context;
+
+// Macro to aligned up to the memory size in question
+// From NVIDIA Samples simpleStreams.cu
+#define MEMORY_ALIGNMENT  4096
+#define ALIGN_UP(x,size) ( ((size_t)x+(size-1))&(~(size-1)) )
 
 /* This macro checks for an error in the command given.  If it fails, the
  * entire program is killed.

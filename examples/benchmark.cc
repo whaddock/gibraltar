@@ -19,10 +19,10 @@
 using namespace std;
 
 #ifndef min_test
-#define min_test 2
+#define min_test 120
 #endif
 #ifndef max_test
-#define max_test 16
+#define max_test 24
 #endif
 
 double
@@ -50,10 +50,10 @@ main(int argc, char **argv)
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
 	printf("%%      n        m datasize chk_tput rec_tput chk_tput rec_tput chk_tput rec_tput\n");
 
-	for (int m = min_test; m <= max_test; m++) {
-		for (int n = min_test; n <= max_test; n++) {
+	for (int m = max_test; m <= max_test; m++) {
+		for (int n = min_test; n <= min_test; n++) {
 			printf("%8i %8i ", n, m);
-			for (int j = 0; j < 3; j++) {
+			for (int j = 0; j < 1; j++) {
 				double chk_time, dns_time;
 				gib_context_t * gc;
 
@@ -71,7 +71,7 @@ main(int argc, char **argv)
 					exit(EXIT_FAILURE);
 				}
 
-				int size = 1024 * 1024;
+				int size = 1024 * 1024 * 8;
 				void *data;
 				gib_alloc(&data, size, &size, gc);
 
@@ -96,7 +96,7 @@ main(int argc, char **argv)
 					failed[probe] = 1;
 
 					/* Destroy the buffer */
-					memset((char *) data + size * probe, 0, size);
+				memset((char *) data + size * probe, 0, size);
 				}
 
 				int buf_ids[256];
@@ -146,8 +146,8 @@ main(int argc, char **argv)
 						size_mb / dns_time);
 
 				gib_free(data, gc);
-				gib_free(dense_data, gc);
-				free(backup_data);
+				// gib_free(dense_data, gc);
+				// free(backup_data);
 				gib_destroy(gc);
 			}
 			printf("\n");

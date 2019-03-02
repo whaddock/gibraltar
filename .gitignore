@@ -6,3 +6,7 @@ sweeping_test
 LFLAGS
 obj/
 libgibraltar.a
+*/*~
+*/*.o
+src/*.cubin
+src/*.ptx
