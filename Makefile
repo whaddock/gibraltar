@@ -19,7 +19,7 @@ CPPFLAGS += -Iinclude/ -I/usr/local/cuda/include/
 LDFLAGS += -Llib/ -L/usr/local/cuda/lib64/
 
 CFLAGS += -Wall
-LDLIBS=-lcuda -ljerasure
+LDLIBS=-lcuda -lcudart -ljerasure
 
 all: lib/libjerasure.a src/libgibraltar.a $(TESTS)
 

@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/mman.h>
 
 using namespace std;
 
@@ -257,15 +258,28 @@ main(int argc, char **argv)
 	}
 
 	int size = opts.size;
-	void *data;
+	void *data = 0;
+	/*
+#define MEMORY_ALIGNMENT  4096
+#define ALIGN_UP(x,size) ( ((size_t)x+(size-1))&(~(size-1)) )
+	size_t nbytes = size * (n + m);
+	unsigned prot_flags = 0;
+	unsigned map_flags = 0;
+	prot_flags |= PROT_READ|PROT_WRITE;
+	map_flags |= MAP_PRIVATE|MAP_ANON;
+	data = (int *)mmap(NULL, (nbytes + MEMORY_ALIGNMENT), prot_flags, map_flags, -1, 0);
+	fprintf(stderr, "gib_alloc_1: %u, %u, %i, %x\n",n, m, size, MEMORY_ALIGNMENT);
+	*/
 	gib_alloc(&data, size, &size, gc);
-
+	fprintf(stderr, "benchmark: Returned from gib_alloc, %p, %i\n",data,size);
 	for (int i = 0; i < size * n; i++)
 		((char *) data)[i] = (unsigned char) rand() % 256;
 
+	fprintf(stderr, "benchmark: Calling gib_generate\n");
 	time_iters(opts.action == encode ? op_time : tmptime,
 		   gib_generate(data, size, gc),
 		   opts.action == encode ? iters : 1);
+	fprintf(stderr, "benchmark: Return from gib_generate.");
 
 	unsigned char *backup_data = (unsigned char *)malloc(size * (n + m));
 

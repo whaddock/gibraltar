@@ -23,11 +23,13 @@ int gib_buf_size = 1024*1024;
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <cuda_runtime_api.h>
 #include <cuda.h>
+#include <cuda_runtime.h>
 #include <math.h>
 
 #include "gib_context.h"
@@ -52,6 +54,12 @@ struct gpu_context_t {
 };
 
 typedef struct gpu_context_t * gpu_context;
+
+/* Macro to aligned up to the memory size in question
+ * From NVIDIA Samples simpleStreams.cu
+ */
+#define MEMORY_ALIGNMENT  4096
+#define ALIGN_UP(x,size) ( ((size_t)x+(size-1))&(~(size-1)) )
 
 /* This macro checks for an error in the command given.  If it fails, the
  * entire program is killed.
@@ -176,7 +184,7 @@ gib_init_cuda(int n, int m, struct gib_cuda_options *opts, gib_context *c)
 
 	unsigned ctx_flags = 0;
 	if (opts->use_mmap)
-		ctx_flags |= CU_CTX_MAP_HOST;
+		ctx_flags |= cudaHostRegisterMapped;
 	ERROR_CHECK_FAIL(cuCtxCreate(&pCtx, ctx_flags, dev));
 
 	/* Initialize the Gibraltar context */
@@ -294,14 +302,34 @@ _gib_alloc(void **buffers, int buf_size, int *ld, gib_context c)
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	gpu_context gpu_c = (gpu_context)(c->acc_context);
-	unsigned alloc_flags = 0;
+	unsigned prot_flags = 0;
+	unsigned map_flags = 0;
+	size_t nbytes = buf_size * (c->n + c->m);
+
+	int *dp_a;
+	/*
 	if (gpu_c->use_mmap)
-		alloc_flags |= CU_MEMHOSTALLOC_DEVICEMAP;
-	ERROR_CHECK_FAIL(cuMemHostAlloc(buffers, (c->n + c->m) * buf_size,
-					alloc_flags));
+	  {
+	  prot_flags |= PROT_READ|PROT_WRITE;
+	  map_flags |= MAP_PRIVATE|MAP_ANON;
+	  }
+	fprintf(stderr, "gib_alloc_1: %u, %u, %i, %x\n",c->n, c->m, buf_size, MEMORY_ALIGNMENT);
+        fprintf(stderr, "> mmap() allocating %4.2f Mbytes (generic page-aligned system memory)\n", (float)nbytes/1048576.0f);
+	*pp_a = (int *)mmap(NULL, (nbytes + MEMORY_ALIGNMENT), prot_flags, map_flags, -1, 0);
+	*buffers = (int *)ALIGN_UP(*pp_a, MEMORY_ALIGNMENT);
+	fprintf(stderr, "gib_alloc_2: %p, %p, %i, %x\n",pp_a,buffers,nbytes,map_flags);
+        fprintf(stderr, "> cudaHostRegister() registering %4.2f Mbytes of generic allocated system memory\n", (float)nbytes/1048576.0f);
+	ERROR_CHECK_FAIL(cudaHostRegister(*buffers, nbytes, cudaHostRegisterMapped));
+*/
+	ERROR_CHECK_FAIL( cudaMallocHost((void**)&buffers, nbytes) ); // host pinned
+	fprintf(stderr, "gib_alloc_3: %p, %i, %x\n",buffers,nbytes,map_flags);
+	dp_a = 0;
+	ERROR_CHECK_FAIL(cudaMalloc((void **)gpu_c->buffers, nbytes));
+	fprintf(stderr, "gib_alloc_4: %p\n",gpu_c->buffers);
 	*ld = buf_size;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
+	fprintf(stderr, "gib_alloc_5: LEAVING\n\n");
 	return GIB_SUC;
 }
 
@@ -310,7 +338,8 @@ _gib_free(void *buffers, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
-	ERROR_CHECK_FAIL(cuMemFreeHost(buffers));
+	//	ERROR_CHECK_FAIL(cuMemFreeHost(buffers));
+	ERROR_CHECK_FAIL(cudaHostUnregister(buffers));
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
@@ -332,6 +361,7 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 		return rc;
 	}
 
+	fprintf(stderr, "gib_generate: %u, %i\n",buffers, buf_size);
 	int nthreads_per_block = 128;
 	int fetch_size = sizeof(int)*nthreads_per_block;
 	int nblocks = (buf_size + fetch_size - 1)/fetch_size;
