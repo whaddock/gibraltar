@@ -18,6 +18,9 @@
 #include <cstdio>
 using namespace std;
 
+#include <cuda_runtime_api.h>
+#include <cuda.h>
+
 #ifndef min_test
 #define min_test 14
 #endif
@@ -74,9 +77,12 @@ main(int argc, char **argv)
 				int size = 1024 * 1024;
 				void *data;
 				gib_alloc(&data, size, &size, gc);
-
+				//				std::cerr << cudaMallocHost((void**)&data, size) << std::endl;
+				// gib_free(data, gc);
+				// return 0;
 				for (int i = 0; i < size * n; i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
+
 				for (int i = (n+m)*size; i < size * (n * 2 + m); i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
 

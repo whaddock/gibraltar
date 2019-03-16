@@ -23,9 +23,7 @@
 #endif
 
 /* Size of each GPU buffer; n+m will be allocated */
-#if !GIB_USE_MMAP
-int gib_buf_size = 1024*1024;
-#endif
+int gib_buf_size = 1024*1024*8;
 
 const char env_error_str[] =
 	"Your environment is not completely set. Please indicate a directory "
@@ -43,6 +41,7 @@ const char env_error_str[] =
 #include <stdio.h>
 #include <string.h>
 #include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
 #include <cuda.h>
 #include <math.h>
 
@@ -59,6 +58,20 @@ struct gpu_context_t {
 };
 
 typedef struct gpu_context_t * gpu_context;
+
+// Convenience function for checking CUDA runtime API results
+// can be wrapped around any runtime API call. No-op in release builds.
+inline
+cudaError_t checkCuda(cudaError_t result)
+{
+#if defined(DEBUG) || defined(_DEBUG)
+  if (result != cudaSuccess) {
+    fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
+    assert(result == cudaSuccess);
+  }
+#endif
+  return result;
+}
 
 /* This macro checks for an error in the command given.  If it fails, the
  * entire program is killed.
@@ -283,13 +296,11 @@ _gib_alloc(void **buffers, int buf_size, int *ld, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
-#if GIB_USE_MMAP
-	ERROR_CHECK_FAIL(cuMemHostAlloc(buffers, (c->n+c->m)*buf_size*2,
-					CU_MEMHOSTALLOC_DEVICEMAP));
-#else
-	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*2));
-	//	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size));
-#endif
+	gpu_context gpu_c = (gpu_context) c->acc_context;
+	ERROR_CHECK_FAIL(cudaMallocHost(buffers, (c->n+c->m)*buf_size*2));
+	checkCuda(cudaMalloc((void**)&gpu_c->buffers, (c->n+c->m)*buf_size*2));
+	//	checkCuda(cudaMalloc(gpu_c->buffers, (c->n+c->m)*buf_size));
+
 	*ld = buf_size;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
@@ -301,7 +312,9 @@ _gib_free(void *buffers, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
-	ERROR_CHECK_FAIL(cuMemFreeHost(buffers));
+	gpu_context gpu_c = (gpu_context) c->acc_context;
+	//	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+	ERROR_CHECK_FAIL(cudaFreeHost(buffers));
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
@@ -313,7 +326,7 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	/* Do it all at once if the buffers are small enough */
-#if !GIB_USE_MMAP
+
 	/* This is too large to do at once in the GPU memory we have
 	 * allocated.  Split it into several noncontiguous jobs.
 	 */
@@ -323,7 +336,6 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 			cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 		return rc;
 	}
-#endif
 
 	int nthreads_per_block = 128;
 	int fetch_size = sizeof(int)*nthreads_per_block;
@@ -336,26 +348,20 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, (c->m)*(c->n)));
 
-#if !GIB_USE_MMAP
 	/* Copy the buffers to memory */
 	ERROR_CHECK_FAIL(
 		cuMemcpyHtoD(gpu_c->buffers, buffers, (c->n)*buf_size));
 	ERROR_CHECK_FAIL(
-			 cuMemcpyHtoD(gpu_c->buffers[(c->n+c->m)*buf_size], buffers, (c->n)*buf_size));
-#endif
+		cuMemcpyHtoD((gpu_c->buffers + (c->n+c->m)*buf_size), buffers, (c->n)*buf_size));
+
 	/* Configure and launch */
 	ERROR_CHECK_FAIL(
 		cuFuncSetBlockShape(gpu_c->checksum, nthreads_per_block, 1,
 				    1));
 	int offset = 0;
 	void *ptr;
-#if GIB_USE_MMAP
-	CUdeviceptr cpu_buffers;
-	ERROR_CHECK_FAIL(cuMemHostGetDevicePointer(&cpu_buffers, buffers, 0));
-	ptr = (void *)cpu_buffers;
-#else
 	ptr = (void *)(gpu_c->buffers);
-#endif
+
 	ERROR_CHECK_FAIL(
 		cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
 	offset += sizeof(ptr);
@@ -367,32 +373,20 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 	ERROR_CHECK_FAIL(cuLaunchGrid(gpu_c->checksum, nblocks, 1));
 
   /* Get the results back */
-#if !GIB_USE_MMAP
 	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
 	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
 	ERROR_CHECK_FAIL(cuMemcpyDtoH(tmp_h, tmp_d, (c->m)*buf_size));
-#else
-	ERROR_CHECK_FAIL(cuCtxSynchronize());
-#endif
+	ptr = (void *)(gpu_c->buffers + (c->n+c->m)*buf_size);
 
-#if GIB_USE_MMAP
-	ptr = (void *)(cpu_buffers + (c->n+c->m)*buf_size);
-#else
-	ptr = (void *)(gpu_c->buffers[(c->n+c->m)*buf_size]);
-#endif
 	offset = 0;
 	ERROR_CHECK_FAIL(
 		cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
 	ERROR_CHECK_FAIL(cuLaunchGrid(gpu_c->checksum, nblocks, 1));
 
   /* Get the results back */
-#if !GIB_USE_MMAP
-	CUdeviceptr tmp_d = gpu_c->buffers + (c->n*2 + c->m)*buf_size;
-	void *tmp_h = (void *)((unsigned char *)(buffers) + (c->n*2+c->m)*buf_size);
+	tmp_d = gpu_c->buffers + (c->n*2 + c->m)*buf_size;
+	tmp_h = (void *)((unsigned char *)(buffers) + (c->n*2+c->m)*buf_size);
 	ERROR_CHECK_FAIL(cuMemcpyDtoH(tmp_h, tmp_d, (c->m)*buf_size));
-#else
-	ERROR_CHECK_FAIL(cuCtxSynchronize());
-#endif
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
