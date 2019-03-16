@@ -19,7 +19,7 @@
 using namespace std;
 
 #ifndef min_test
-#define min_test 2
+#define min_test 14
 #endif
 #ifndef max_test
 #define max_test 16
@@ -53,7 +53,7 @@ main(int argc, char **argv)
 	for (int m = min_test; m <= max_test; m++) {
 		for (int n = min_test; n <= max_test; n++) {
 			printf("%8i %8i ", n, m);
-			for (int j = 0; j < 3; j++) {
+			for (int j = 0; j < 1; j++) {
 				double chk_time, dns_time;
 				gib_context_t * gc;
 
@@ -77,8 +77,17 @@ main(int argc, char **argv)
 
 				for (int i = 0; i < size * n; i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
+				for (int i = (n+m)*size; i < size * (n * 2 + m); i++)
+					((char *) data)[i] = (unsigned char) rand() % 256;
 
-				time_iters(chk_time, gib_generate(data, size, gc), iters);
+				//#define time_iters(var, cmd, iters) do {
+				//time_iters(chk_time, gib_generate(data, size, gc), iters);	
+				do {
+				  chk_time = -1*etime();
+				  for (int iter = 0; iter < iters; iter++)
+				    gib_generate(data, size, gc);
+				  chk_time = (chk_time + etime()) / iters;
+				} while(0);
 
 				unsigned char *backup_data = (unsigned char *)
 								malloc(size * (n + m));
@@ -142,7 +151,7 @@ main(int argc, char **argv)
 
 				if(j==0) printf("%8i ", size * n);
 
-				printf("%8.3lf %8.3lf ", size_mb / chk_time,
+				printf("%8.3lf %8.3lf ", size_mb *2 / chk_time,
 						size_mb / dns_time);
 
 				gib_free(data, gc);

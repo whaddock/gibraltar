@@ -284,10 +284,11 @@ _gib_alloc(void **buffers, int buf_size, int *ld, gib_context c)
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 #if GIB_USE_MMAP
-	ERROR_CHECK_FAIL(cuMemHostAlloc(buffers, (c->n+c->m)*buf_size,
+	ERROR_CHECK_FAIL(cuMemHostAlloc(buffers, (c->n+c->m)*buf_size*2,
 					CU_MEMHOSTALLOC_DEVICEMAP));
 #else
-	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size));
+	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*2));
+	//	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size));
 #endif
 	*ld = buf_size;
 	ERROR_CHECK_FAIL(
@@ -339,6 +340,8 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 	/* Copy the buffers to memory */
 	ERROR_CHECK_FAIL(
 		cuMemcpyHtoD(gpu_c->buffers, buffers, (c->n)*buf_size));
+	ERROR_CHECK_FAIL(
+			 cuMemcpyHtoD(gpu_c->buffers[(c->n+c->m)*buf_size], buffers, (c->n)*buf_size));
 #endif
 	/* Configure and launch */
 	ERROR_CHECK_FAIL(
@@ -367,6 +370,25 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 #if !GIB_USE_MMAP
 	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
 	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
+	ERROR_CHECK_FAIL(cuMemcpyDtoH(tmp_h, tmp_d, (c->m)*buf_size));
+#else
+	ERROR_CHECK_FAIL(cuCtxSynchronize());
+#endif
+
+#if GIB_USE_MMAP
+	ptr = (void *)(cpu_buffers + (c->n+c->m)*buf_size);
+#else
+	ptr = (void *)(gpu_c->buffers[(c->n+c->m)*buf_size]);
+#endif
+	offset = 0;
+	ERROR_CHECK_FAIL(
+		cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
+	ERROR_CHECK_FAIL(cuLaunchGrid(gpu_c->checksum, nblocks, 1));
+
+  /* Get the results back */
+#if !GIB_USE_MMAP
+	CUdeviceptr tmp_d = gpu_c->buffers + (c->n*2 + c->m)*buf_size;
+	void *tmp_h = (void *)((unsigned char *)(buffers) + (c->n*2+c->m)*buf_size);
 	ERROR_CHECK_FAIL(cuMemcpyDtoH(tmp_h, tmp_d, (c->m)*buf_size));
 #else
 	ERROR_CHECK_FAIL(cuCtxSynchronize());

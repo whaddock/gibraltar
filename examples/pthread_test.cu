@@ -15,9 +15,11 @@
 #include <math.h>
 
 
-#define N 120
-#define M 24
+#define N 20
+#define M 4
 #define S 4194304
+const int NW = 1 << 20;
+const int nthreads_per_block = 64;
 
 /* gib_cuda_checksum.cu: CUDA kernels for Reed-Solomon coding.
  *
@@ -28,6 +30,20 @@
  * Changes:
  *
  */
+
+/* This macro checks for an error in the command given.  If it fails, the
+ * entire program is killed.
+ * TODO:  Fail over to CPU code if an error occurs.
+ */
+#define ERROR_CHECK_FAIL(cmd) {						\
+		CUresult rc = cmd;					\
+		if (rc != CUDA_SUCCESS) {				\
+			fprintf(stderr, "%s failed with %i at "		\
+				"%i in %s\n", #cmd, rc,			\
+				__LINE__,  __FILE__);			\
+			exit(EXIT_FAILURE);				\
+		}							\
+	}
 
 typedef unsigned char byte;
 __device__ unsigned char gf_log_d[256];
@@ -189,22 +205,21 @@ cudaError_t checkCuda(cudaError_t result)
 }
 
 /*********************************************/
-const int NW = 1 << 20;
 
-__global__ void kernel(void *x, int n)
+__global__ void kernel(int *x, int n)
 {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     for (int i = tid; i < n; i += blockDim.x * gridDim.x) {
-        x[i] = sqrt(pow(3.14159,i));
+//        x[i] = sqrt(pow(3.14159,i));
     }
 }
 
-void *launch_kernel(void *dummy)
+void *launch_kernel(void *nblocks)
 {
     void *data;
-    cudaMalloc(&data, N * M * S);
+    cudaMalloc(&data, NW * N);
 
-    kernel<<<1, 64>>>(data, NW);
+//    gib_checksum_d<<<nblocks, nthreads_per_block>>>(data, N);
 
     cudaStreamSynchronize(0);
 
@@ -215,7 +230,17 @@ int main(int argc, char* argv[])
 {
     int n = N;
     int m = M;
-    int size = S;
+    int bytes = NW * (N + M);
+    const int num_threads = 4;
+
+    const int streamSize = n / num_threads;
+    const int streamBytes = streamSize;
+    cudaStream_t stream[num_threads];
+    for (int i = 0; i < num_threads; ++i)
+      checkCuda( cudaStreamCreate(&stream[i]) );
+
+    int fetch_size = sizeof(int)*nthreads_per_block;
+    int nblocks = (NW + fetch_size - 1)/fetch_size;
 
     int devId = 0;
     if (argc > 1) devId = atoi(argv[1]);
@@ -226,31 +251,34 @@ int main(int argc, char* argv[])
     checkCuda( cudaSetDevice(devId) );
     
     // allocate pinned host memory and device memory
-    float *a, *d_a;
-    checkCuda( cudaMallocHost((void**)&a, bytes) );      // host pinned
-    checkCuda( cudaMalloc((void**)&d_a, bytes) ); // device
+    void **a, **d_a;
+    checkCuda( cudaMallocHost((void**)&a, bytes * num_threads) );      // host pinned
+    checkCuda( cudaMalloc((void**)&d_a, bytes * num_threads) ); // device
+    for (int i = 0; i < bytes * 2; i++)
+        ((char *) a)[i] = (unsigned char) rand() % 256;
 
     /* Initialize the math libraries */
+    int size = 256 * 256;
     gib_galois_init();
-    unsigned char F[256*256];
+    unsigned char F[size];
     gib_galois_gen_F(F, m, n);
 
     /* Initialize/Allocate GPU-side structures */
     CUdeviceptr log_d, ilog_d, F_d;
-    cudaMalloc(&log_d, sizeof(F));
-    cudaMalloc(&ilog_d, sizeof(F));
-    cudaMalloc(&F_d, sizeof(F));
+    cudaMalloc((void**)&log_d, size);
+    cudaMalloc((void**)&ilog_d, size);
+    cudaMalloc((void**)&F_d, size);
 
-    checkCuda(cuMemcpyHtoD(log_d, gib_gf_log, 256));
-    checkCuda(cuMemcpyHtoD(ilog_d, gib_gf_ilog, 256));
-    checkCuda(cuMemcpyHtoD(F_d, F, m*n));
-
-    const int num_threads = 2;
+    ERROR_CHECK_FAIL(cuMemcpyHtoD(log_d, gib_gf_log, size));
+    ERROR_CHECK_FAIL(cuMemcpyHtoD(ilog_d, gib_gf_ilog, size));
+    ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, m*n));
+/*
 
     pthread_t threads[num_threads];
 
     for (int i = 0; i < num_threads; i++) {
-        if (pthread_create(&threads[i], NULL, launch_kernel, 0)) {
+        ERROR_CHECK_FAIL(cuMemcpyHtoD(((void*) &d_a)[i * bytes], ((void*) &a)[i * bytes], bytes));
+        if (pthread_create(&threads[i], NULL, launch_kernel, NULL)) {
             fprintf(stderr, "Error creating threadn");
             return 1;
         }
@@ -261,9 +289,47 @@ int main(int argc, char* argv[])
             fprintf(stderr, "Error joining threadn");
             return 2;
         }
+        ERROR_CHECK_FAIL(cuMemcpyDtoH(a + i * bytes, d_a + i * bytes, bytes));
     }
 
-    cudaDeviceReset();
+ for (int i = 0; i < num_threads; ++i) {
+  int offset = i * bytes;
+  cudaMemcpyAsync(&d_a[offset], &a[offset], 
+                  streamBytes, cudaMemcpyHostToDevice, cudaMemcpyHostToDevice, stream[i]);
+}
+
+for (int i = 0; i < num_threads; ++i) {
+  int offset = i * bytes;
+  kernel<<<bytes/blockSize, blockSize, 0, stream[i]>>>(d_a, offset);
+}
+
+for (int i = 0; i < num_threads; ++i) {
+  int offset = i * bytes;
+  cudaMemcpyAsync(&a[offset], &d_a[offset], 
+                  streamBytes, cudaMemcpyDeviceToHost, cudaMemcpyDeviceToHost, stream[i]);
+}
+*/
+  int blockSize = 64;
+  for (int i = 0; i < num_threads; ++i)
+  {
+    int offset = i * bytes;
+    checkCuda( cudaMemcpyAsync(&d_a[offset], &a[offset], 
+                               streamBytes, cudaMemcpyHostToDevice,
+                               stream[i]) );
+  }
+  for (int i = 0; i < num_threads; ++i)
+  {
+    int offset = i * bytes;
+//    kernel<<<bytes/blockSize, blockSize, 0, stream[i]>>>(d_a, offset);
+  }
+  for (int i = 0; i < num_threads; ++i)
+  {
+    int offset = i * bytes;
+    checkCuda( cudaMemcpyAsync(&a[offset], &d_a[offset], 
+                               streamBytes, cudaMemcpyDeviceToHost,
+                               stream[i]) );
+  }
+   cudaDeviceReset();
 
     return 0;
 }
