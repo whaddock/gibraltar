@@ -22,10 +22,13 @@ using namespace std;
 #include <cuda.h>
 
 #ifndef min_test
-#define min_test 14
+#define min_test 120
 #endif
 #ifndef max_test
-#define max_test 16
+#define max_test 120
+#endif
+#ifndef SHARDS
+#define SHARDS 24
 #endif
 
 double
@@ -47,13 +50,13 @@ etime(void)
 int
 main(int argc, char **argv)
 {
-	int iters = 5;
+	int iters = 1;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
 	printf("%%      n        m datasize chk_tput rec_tput chk_tput rec_tput chk_tput rec_tput\n");
 
-	for (int m = min_test; m <= max_test; m++) {
+	for (int m = SHARDS; m <= SHARDS; m++) {
 		for (int n = min_test; n <= max_test; n++) {
 			printf("%8i %8i ", n, m);
 			for (int j = 0; j < 1; j++) {
@@ -74,18 +77,17 @@ main(int argc, char **argv)
 					exit(EXIT_FAILURE);
 				}
 
-				int size = 1024 * 1024;
+				int size = 1024 * 1024 * 4;
 				void *data;
 				gib_alloc(&data, size, &size, gc);
-				//				std::cerr << cudaMallocHost((void**)&data, size) << std::endl;
-				// gib_free(data, gc);
-				// return 0;
 				for (int i = 0; i < size * n; i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
 
 				for (int i = (n+m)*size; i < size * (n * 2 + m); i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
-
+				fprintf(stderr,"Calling gib_generate.\n");
+				//gib_free(data, gc);
+				//return 0;
 				//#define time_iters(var, cmd, iters) do {
 				//time_iters(chk_time, gib_generate(data, size, gc), iters);	
 				do {
@@ -94,7 +96,8 @@ main(int argc, char **argv)
 				    gib_generate(data, size, gc);
 				  chk_time = (chk_time + etime()) / iters;
 				} while(0);
-
+				while(0) {
+				fprintf(stderr,"Starting decode.\n");
 				unsigned char *backup_data = (unsigned char *)
 								malloc(size * (n + m));
 
@@ -152,17 +155,17 @@ main(int argc, char **argv)
 						exit(1);
 					}
 				}
-
+				}
 				double size_mb = size * n / 1024.0 / 1024.0;
 
 				if(j==0) printf("%8i ", size * n);
 
-				printf("%8.3lf %8.3lf ", size_mb *2 / chk_time,
+				printf("%8.3lf %8.3lf ", size_mb *2*10 / chk_time,
 						size_mb / dns_time);
 
 				gib_free(data, gc);
-				gib_free(dense_data, gc);
-				free(backup_data);
+				// gib_free(dense_data, gc);
+				//free(backup_data);
 				gib_destroy(gc);
 			}
 			printf("\n");
