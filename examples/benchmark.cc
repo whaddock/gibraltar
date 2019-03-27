@@ -50,7 +50,7 @@ etime(void)
 int
 main(int argc, char **argv)
 {
-	int iters = 1;
+	int iters = 100;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
@@ -77,29 +77,35 @@ main(int argc, char **argv)
 					exit(EXIT_FAILURE);
 				}
 
-				int size = 1024 * 1024 * 4;
+				int size = 1024 * 1024 * 8;
 				void *data;
 				gib_alloc(&data, size, &size, gc);
+
 				for (int i = 0; i < size * n; i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
 
 				for (int i = (n+m)*size; i < size * (n * 2 + m); i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
-				fprintf(stderr,"Calling gib_generate.\n");
+				fprintf(stderr,"Calling gib_generate. %lf\n",etime());
 				//gib_free(data, gc);
 				//return 0;
 				//#define time_iters(var, cmd, iters) do {
 				//time_iters(chk_time, gib_generate(data, size, gc), iters);	
+				// unsigned int *F;
+
 				do {
 				  chk_time = -1*etime();
 				  for (int iter = 0; iter < iters; iter++)
 				    gib_generate(data, size, gc);
-				  chk_time = (chk_time + etime()) / iters;
+				  chk_time = (chk_time + etime());
 				} while(0);
-				while(0) {
-				fprintf(stderr,"Starting decode.\n");
+				fprintf(stderr,"Finished checksum. %lf\n",etime());
+
+				void *dense_data;
 				unsigned char *backup_data = (unsigned char *)
 								malloc(size * (n + m));
+				while(1) {
+				fprintf(stderr,"Starting decode.\n");
 
 				memcpy(backup_data, data, size * (n + m));
 
@@ -133,7 +139,6 @@ main(int argc, char **argv)
 					f_index++;
 				}
 
-				void *dense_data;
 				gib_alloc((void **) &dense_data, size, &size, gc);
 				for (int i = 0; i < m + n; i++) {
 					memcpy((unsigned char *) dense_data + i * size,
@@ -143,6 +148,7 @@ main(int argc, char **argv)
 				int nfailed = (m < n) ? m : n;
 				memset((unsigned char *) dense_data + n * size, 0,
 						size * nfailed);
+				fprintf(stderr,"Calling gib_recover.\n");
 				time_iters(dns_time,
 						gib_recover(dense_data, size, buf_ids, nfailed, gc),
 						iters);
@@ -160,12 +166,12 @@ main(int argc, char **argv)
 
 				if(j==0) printf("%8i ", size * n);
 
-				printf("%8.3lf %8.3lf ", size_mb *2*10 / chk_time,
+				printf("%8.3lf %8.3lf %8.3lf ", size_mb *2*100 / (chk_time * 3600), chk_time,
 						size_mb / dns_time);
 
 				gib_free(data, gc);
-				// gib_free(dense_data, gc);
-				//free(backup_data);
+				gib_free(dense_data, gc);
+				free(backup_data);
 				gib_destroy(gc);
 			}
 			printf("\n");
