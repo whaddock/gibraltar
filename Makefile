@@ -14,7 +14,7 @@ TESTS=\
 # e.g. -I/usr/local/cuda/include
 # nvcc -I../inc -I/usr/local/cuda/include/ --default-stream per-thread pthread_test.cu -o pthread_test -L../src/ -lgibraltar --gpu-architecture=sm_35 -L/usr/local/cuda/lib64/ -lcuda
 CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ -std=c++11
-
+CPPFLAGS += -DNSTREAMS=2
 # Expect CUDA library link directive to already be in LDFLAGS,
 # .e.g. -L/usr/local/cuda/lib
 LDFLAGS += -Llib/ -L/usr/local/cuda/lib64 -L../src/

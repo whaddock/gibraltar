@@ -12,6 +12,7 @@
 
 #include <gibraltar.h>
 #include <iostream>
+#include <iomanip>
 #include <cstdlib>
 #include <sys/time.h>
 #include <cstring>
@@ -21,6 +22,9 @@ using namespace std;
 #include <cuda_runtime_api.h>
 #include <cuda.h>
 
+#ifndef NSTREAMS
+#define NSTREAMS 1
+#endif
 #ifndef min_test
 #define min_test 120
 #endif
@@ -77,38 +81,51 @@ main(int argc, char **argv)
 					exit(EXIT_FAILURE);
 				}
 
-				int size = 1024 * 1024 * 8;
+				size_t size = 1024 * 1024 * 8;
 				void *data;
+				// So, how do we know that the amount of memory that will be 
+				// allocated is m * n * NSTREAMS? What should the interface
+				// look like?
 				gib_alloc(&data, size, &size, gc);
 
-				for (int i = 0; i < size * n; i++)
+				for (int j = 0; j < NSTREAMS; j++) {
+				  for (int i = j; i < size * n * (j + 1); i++)
 					((char *) data)[i] = (unsigned char) rand() % 256;
-
-				for (int i = (n+m)*size; i < size * (n * 2 + m); i++)
-					((char *) data)[i] = (unsigned char) rand() % 256;
-				fprintf(stderr,"Calling gib_generate. %lf\n",etime());
+				}
 				//gib_free(data, gc);
 				//return 0;
 				//#define time_iters(var, cmd, iters) do {
 				//time_iters(chk_time, gib_generate(data, size, gc), iters);	
 				// unsigned int *F;
-
+                                void *ptr;
 				do {
 				  chk_time = -1*etime();
-				  for (int iter = 0; iter < iters; iter++)
-				    gib_generate(data, size, gc);
+				  for (int iter = 0; iter < iters; iter++) {
+				    //TODO: make this work when NSTREAMS > 2
+				    while(0) std::cerr << std::endl << "Calling gib_generate. " 
+					      << etime() << std::endl << std::flush;
+				    ptr = (! (iter % NSTREAMS)) ? 
+				      data : ((uint8_t*)data) + size * (n + m) * (iter % NSTREAMS);
+				    while(0) std::cerr << std::hex << ptr << std::endl << std::flush;
+				    gib_generate(ptr, size, gc);
+				  }
 				  chk_time = (chk_time + etime());
 				} while(0);
-				fprintf(stderr,"Finished checksum. %lf\n",etime());
+				while(0) std::cerr << "Finished checksum. %lf\n" 
+					  << etime() << std::endl << std::flush;
+
+				gib_free_gpu(gc); // finished with this
 
 				void *dense_data;
 				unsigned char *backup_data = (unsigned char *)
 								malloc(size * (n + m));
-				while(1) {
-				fprintf(stderr,"Starting decode.\n");
 
-				memcpy(backup_data, data, size * (n + m));
+				std::cout << "Starting decode." << std::endl << std::flush;
 
+				memcpy(backup_data, ptr, size * (n + m));
+
+				while(0) std::cerr << "Just released checksum memory." 
+					  << std::endl << std::flush;
 				char failed[256];
 				for (int i = 0; i < n + m; i++)
 					failed[i] = 0;
@@ -120,7 +137,7 @@ main(int argc, char **argv)
 					failed[probe] = 1;
 
 					/* Destroy the buffer */
-					memset((char *) data + size * probe, 0, size);
+					memset((char *) ptr + size * probe, 0, size);
 				}
 
 				int buf_ids[256];
@@ -140,20 +157,23 @@ main(int argc, char **argv)
 				}
 
 				gib_alloc((void **) &dense_data, size, &size, gc);
+				while(0) std::cerr << "Just allocated dense_data.\n" << std::endl << std::flush;
 				for (int i = 0; i < m + n; i++) {
 					memcpy((unsigned char *) dense_data + i * size,
-							(unsigned char *) data + buf_ids[i] * size, size);
+							(unsigned char *) ptr + buf_ids[i] * size, size);
 				}
+
+				gib_free(data, gc); // finished with this now.
 
 				int nfailed = (m < n) ? m : n;
 				memset((unsigned char *) dense_data + n * size, 0,
 						size * nfailed);
-				fprintf(stderr,"Calling gib_recover.\n");
+				while(0) std::cerr << "Calling gib_recover.\n" << std::endl << std::flush;
 				time_iters(dns_time,
-						gib_recover(dense_data, size, buf_ids, nfailed, gc),
-						iters);
+					   gib_recover(dense_data, size, buf_ids, nfailed, gc),
+					   iters);
 
-				for (int i = 0; i < m + n; i++) {
+				while(0) for (int i = 0; i < m + n; i++) {
 					if (memcmp((unsigned char *) dense_data + i * size,
 							backup_data + buf_ids[i] * size, size)) {
 						printf("Dense test failed on buffer %i/%i.\n", i,
@@ -161,15 +181,13 @@ main(int argc, char **argv)
 						exit(1);
 					}
 				}
-				}
 				double size_mb = size * n / 1024.0 / 1024.0;
 
 				if(j==0) printf("%8i ", size * n);
 
-				printf("%8.3lf %8.3lf %8.3lf ", size_mb *2*100 / (chk_time * 3600), chk_time,
+				printf("%8.3lf %8.3lf %8.3lf ", size_mb * iters / (chk_time * 3600), chk_time,
 						size_mb / dns_time);
 
-				gib_free(data, gc);
 				gib_free(dense_data, gc);
 				free(backup_data);
 				gib_destroy(gc);

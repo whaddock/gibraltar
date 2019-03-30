@@ -14,6 +14,8 @@
 #ifndef GIBRALTAR_H_
 #define GIBRALTAR_H_
 
+#include <stddef.h>
+
 #if __cplusplus
 extern "C" {
 #endif
@@ -25,14 +27,15 @@ int gib_init_jerasure(int n, int m, struct gib_context_t **c);
 
 /* Common Functions */
 int gib_destroy(struct gib_context_t *c);
-int gib_alloc(void **buffers, int buf_size, int *ld, struct gib_context_t *c);
+int gib_free_gpu(struct gib_context_t *c);
+int gib_alloc(void **buffers, size_t buf_size, size_t *ld, struct gib_context_t *c);
 int gib_free(void *buffers, struct gib_context_t *c);
-int gib_generate(void *buffers, int buf_size, struct gib_context_t *c);
-int gib_generate_nc(void *buffers, int buf_size, int work_size,
+int gib_generate(void *buffers, size_t buf_size, struct gib_context_t *c);
+int gib_generate_nc(void *buffers, size_t buf_size, int work_size,
 		    struct gib_context_t *c);
-int gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
+int gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 		struct gib_context_t *c);
-int gib_recover_nc(void *buffers, int buf_size, int work_size, int *buf_ids,
+int gib_recover_nc(void *buffers, size_t buf_size, int work_size, int *buf_ids,
 		   int recover_last, struct gib_context_t *c);
 
 /* Return codes */

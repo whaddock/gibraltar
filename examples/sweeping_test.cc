@@ -32,7 +32,7 @@
 using namespace std;
 
 int max_dim = 8;  /* How big can n and m be? */
-int buf_size = 1024*1024/4; /* Number of integers, so scale by sizeof(int) */
+size_t buf_size = 1024*1024/4; /* Number of integers, so scale by sizeof(int) */
 
 int
 test_config(gib_context gc, int *fail_config, int *buf,
@@ -183,7 +183,7 @@ int
 main(int argc, char **argv)
 {
 	int *buf;
-	int size_sc; /* scratch */
+	size_t size_sc; /* scratch */
 	int *backup_buf = (int *)malloc(max_dim*buf_size*sizeof(int));
 	/* backup_buf just contains data */
 	for (int i = 0; i < max_dim*buf_size; i++)

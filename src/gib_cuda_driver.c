@@ -23,10 +23,9 @@
 #endif
 //#define DEF_STREAM
 #define OLD_STREAM
-#ifndef DEF_STREAM
-#define NSTREAMS 2
+#ifndef NSTREAMS
+#define NSTREAMS 1
 #endif
-#define NITERS 100
 
 /* Size of each GPU buffer; n+m will be allocated */
 int gib_buf_size = 1024*1024*8;
@@ -64,7 +63,7 @@ struct gpu_context_t {
 	CUdeviceptr buffers;
   //CUdeviceptr stride;
 #ifndef DEF_STREAM
-        CUstream stream[NSTREAMS];
+        CUstream streams[NSTREAMS];
 #endif
 };
 
@@ -297,22 +296,25 @@ _gib_destroy(gib_context c)
 		exit(EXIT_FAILURE);
 	}
 	gpu_context gpu_c = (gpu_context) c->acc_context;
-#if !GIB_USE_MMAP
-	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+#ifndef DEF_STREAM
+	while(0) for (int i = 0; i < NSTREAMS; ++i)
+	  ERROR_CHECK_FAIL( cuStreamDestroy(&gpu_c->streams[i]) );
 #endif
 	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
+	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_alloc(void **buffers, int buf_size, int *ld, gib_context c)
+_gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	gpu_context gpu_c = (gpu_context) c->acc_context;
-	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*(size_t)buf_size*NSTREAMS));
-	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers, (c->n+c->m)*(size_t)buf_size*NSTREAMS));
+	while(0) fprintf(stderr,"allocating buffers. %i, %i, %i, %i\n", c->n,c->m,buf_size,NSTREAMS);
+	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*NSTREAMS));
+	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers, (c->n+c->m)*buf_size*NSTREAMS));
 	//	ERROR_CHECK_FAIL(cudaMalloc(gpu_c->buffers, (c->n+c->m)*buf_size));
 
 	*ld = buf_size;
@@ -321,7 +323,7 @@ _gib_alloc(void **buffers, int buf_size, int *ld, gib_context c)
 	// Create NSTREAMS CUDA streams
 #ifndef DEF_STREAM
 	for (int i = 0; i < NSTREAMS; ++i)
-	  ERROR_CHECK_FAIL( cuStreamCreate(&gpu_c->stream[i], CU_STREAM_NON_BLOCKING) );
+	  ERROR_CHECK_FAIL( cuStreamCreate(&gpu_c->streams[i], CU_STREAM_NON_BLOCKING) );
 #endif
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
@@ -334,19 +336,26 @@ _gib_free(void *buffers, gib_context c)
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	gpu_context gpu_c = (gpu_context) c->acc_context;
-	//ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 	ERROR_CHECK_FAIL(cuMemFreeHost(buffers));
-#ifndef DEF_STREAM
-	while(0) for (int i = 0; i < NSTREAMS; ++i)
-	  ERROR_CHECK_FAIL( cuStreamDestroy(&gpu_c->stream[i]) );
-#endif
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_generate(void *buffers, int buf_size, gib_context c)
+_gib_free_gpu(gib_context c)
+{
+	ERROR_CHECK_FAIL(
+		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+	gpu_context gpu_c = (gpu_context) c->acc_context;
+	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+	ERROR_CHECK_FAIL(
+		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
+	return GIB_SUC;
+}
+
+static int
+_gib_generate(void *buffers, size_t buf_size, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
@@ -374,6 +383,7 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 	// ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, (c->m)*(c->n)));
 #ifdef DEF_STREAM
 	/* Copy the buffers to memory */
+	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(
 		cuMemcpyHtoD(gpu_c->buffers, buffers, (c->n)*buf_size));
 	/* Configure and launch */
@@ -391,6 +401,7 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 			    sizeof(buf_size)));
 	offset += sizeof(buf_size);
 	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->checksum, offset));
+	while(0) fprintf(stderr,"launching checksum. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(cuLaunchGrid(gpu_c->checksum, nblocks, 1));
 
 	/* Get the results back */
@@ -400,13 +411,14 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 #endif
 #ifndef DEF_STREAM
 #ifdef OLD_STREAM
-	size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
+	// size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
 	/* Copy the buffers to memory */
+	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers + stripe_offset,
-				       (void*)buffers + stripe_offset,
+			 cuMemcpyAsync((void*)gpu_c->buffers,
+				       (void*)buffers,
 				       (c->n)*buf_size,
-				       gpu_c->stream[stream]));
+				       gpu_c->streams[stream]));
 	/* Configure and launch */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->checksum, nthreads_per_block, 1,
@@ -422,67 +434,66 @@ _gib_generate(void *buffers, int buf_size, gib_context c)
 				     sizeof(buf_size)));
 	offset += sizeof(buf_size);
 	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->checksum, offset));
-	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->checksum, nblocks, 1, gpu_c->stream[stream]));
+	while(0) fprintf(stderr,"launching checksum. %i, %i, %i\n", c->n,c->m,buf_size);
+	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->checksum, nblocks, 1, gpu_c->streams[stream]));
 
 	/* Get the results back */
 	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
 	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)tmp_h + stripe_offset,
-				       (void*)tmp_d + stripe_offset,
+			 cuMemcpyAsync((void*)tmp_h,
+				       (void*)tmp_d,
 				       (c->m)*buf_size,
-				       gpu_c->stream[stream]));
-	stream = (stream + 1) % NSTREAMS;
+				       gpu_c->streams[stream]));
 #else
-	for (int i = 0; i < NSTREAMS; ++i) {
-	  int stripe_offset = i * (c->n+c->m)*buf_size;
-	  /* Copy the buffers to memory */
-	  ERROR_CHECK_FAIL(
-			   cuMemcpyAsync((void*)gpu_c->buffers + stripe_offset,
-					 (void*)buffers + stripe_offset,
-					 (c->n)*buf_size,
-					 gpu_c->stream[i]));
-	  fprintf(stderr,"Launching checksum kernel on GPU. nblocks: %d, nthreads/block: %d\n",
-		  nblocks,nthreads_per_block);
-	  /* Configure and launch */
-	  int *stride;
-	  stride = (int*)malloc(sizeof(int));
-	  fprintf(stderr,"buf_size: %d\n",buf_size);
-	  *stride = buf_size;
-	  void *kernelArgs[] = { &gpu_c->buffers, stride };
-	  ERROR_CHECK_FAIL(
-				    cuLaunchKernel(gpu_c->checksum, nblocks, 1, 1, /* grid dim */
-						   nthreads_per_block, 1, 1, /* block dim */
-						   1, gpu_c->stream[i],  /* shared mem, stream */
-						   kernelArgs,  /* arguments */
-						   0));
-	  /* Get the results back */
-	  CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
-	  void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
-	  ERROR_CHECK_FAIL(
-			   cuMemcpyAsync((void*)tmp_h + stripe_offset,
-					 (void*)tmp_d + stripe_offset,
-					 (c->m)*buf_size,
-					 gpu_c->stream[i]));
+	// int stripe_offset = i * (c->n+c->m)*buf_size;
+	/* Copy the buffers to memory */
+	ERROR_CHECK_FAIL(
+			 cuMemcpyAsync((void*)gpu_c->buffers_offset,
+				       (void*)buffers,
+				       (c->n)*buf_size,
+				       gpu_c->streams[stream]));
+	while(0) fprintf(stderr,"Launching checksum kernel on GPU. nblocks: %d, nthreads/block: %d\n",
+		nblocks,nthreads_per_block);
+	/* Configure and launch */
+	int *stride;
+	stride = (int*)malloc(sizeof(int));
+	while(0) fprintf(stderr,"buf_size: %d\n",buf_size);
+	*stride = buf_size;
+	void *kernelArgs[] = { &gpu_c->buffers, stride };
+	ERROR_CHECK_FAIL(
+			 cuLaunchKernel(gpu_c->checksum, nblocks, 1, 1, /* grid dim */
+					nthreads_per_block, 1, 1, /* block dim */
+					1, gpu_c->streams[stream],  /* shared mem, stream */
+					kernelArgs,  /* arguments */
+					0));
+	/* Get the results back */
+	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
+	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
+	ERROR_CHECK_FAIL(
+			 cuMemcpyAsync((void*)tmp_h,
+				       (void*)tmp_d,
+				       (c->m)*buf_size,
+				       gpu_c->streams[stream]));
 	}
 #endif
 #endif
+	stream = (stream + 1) % NSTREAMS;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
+_gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 	    gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
-
 	int i, j;
 	int n = c->n;
 	int m = c->m;
-	unsigned char A[128*128], inv[128*128], modA[128*128];
+	unsigned char A[256*256], inv[256*256], modA[256*256];
 	for (i = n; i < n+recover_last; i++)
 		if (buf_ids[i] >= n) {
 			fprintf(stderr, "Attempting to recover a parity "
@@ -504,6 +515,8 @@ _gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
 		for (j = 0; j < n; j++)
 			modA[i*n+j] = inv[buf_ids[i]*n+j];
 
+	while(0) fprintf(stderr,"finished GF. %i, %i, %i\n", c->n,c->m,buf_size);
+
 	int nthreads_per_block = 128;
 	int fetch_size = sizeof(int)*nthreads_per_block;
 	int nblocks = (buf_size + fetch_size - 1)/fetch_size;
@@ -511,21 +524,24 @@ _gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
 
 	CUdeviceptr F_d;
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+	while(0) fprintf(stderr,"got F_d pointer. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, modA+n*n, (c->m)*(c->n)));
 
+	while(0) fprintf(stderr,"finished copying GF. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(cuFuncSetBlockShape(gpu_c->recover,
 					     nthreads_per_block, 1, 1));
-	size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
+	//size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
 	/* Copy the buffers to memory */
+	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers + stripe_offset,
-				       (void*)buffers + stripe_offset,
+			 cuMemcpyAsync((void*)gpu_c->buffers,
+				       (void*)buffers,
 				       (c->n)*buf_size,
-				       gpu_c->stream[stream]));
+				       gpu_c->streams[stream]));
 
 	int offset = 0;
 	void *ptr;
-	ptr = (void *)gpu_c->buffers;
+	ptr = (void *)(gpu_c->buffers);
 
 	ERROR_CHECK_FAIL(cuParamSetv(gpu_c->recover, offset, &ptr,
 				     sizeof(ptr)));
@@ -537,16 +553,18 @@ _gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
 				     sizeof(recover_last)));
 	offset += sizeof(recover_last);
 	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->recover, offset));
-	fprintf(stderr,"Calling gib_recover\n.");
-	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->recover, nblocks, 1, gpu_c->stream[stream]));
+	while(0) fprintf(stderr,"Launching gib_recover kernel\n.");
+	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->recover, nblocks, 1, gpu_c->streams[stream]));
 
 	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
 	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
+	while(0) fprintf(stderr,"Copying back from gib_recover\n.");
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)tmp_h + stripe_offset,
-				       (void*)tmp_d + stripe_offset,
+			 cuMemcpyAsync((void*)tmp_h,
+				       (void*)tmp_d,
 				       recover_last*buf_size,
-				       gpu_c->stream[stream]));
+				       gpu_c->streams[stream]));
+	while(0) fprintf(stderr,"Stream: %d\n.",stream);
 	stream = (stream + 1) % NSTREAMS;
 
 	ERROR_CHECK_FAIL(
@@ -563,14 +581,14 @@ _gib_recover(void *buffers, int buf_size, int *buf_ids, int recover_last,
    Bring this to life for that implementation only.
  */
 static int
-_gib_generate_nc(void *buffers, int buf_size, int work_size,
+_gib_generate_nc(void *buffers, size_t buf_size, int work_size,
 		gib_context c)
 {
 	return gib_cpu_generate_nc(buffers, buf_size, work_size, c);
 }
 
 static int
-_gib_recover_nc(void *buffers, int buf_size, int work_size, int *buf_ids,
+_gib_recover_nc(void *buffers, size_t buf_size, int work_size, int *buf_ids,
 		int recover_last, gib_context c)
 {
 	return gib_cpu_recover_nc(buffers, buf_size, work_size, buf_ids,
@@ -581,6 +599,7 @@ _gib_recover_nc(void *buffers, int buf_size, int work_size, int *buf_ids,
 struct dynamic_fp cuda = {
 		.gib_alloc = &_gib_alloc,
 		.gib_destroy = &_gib_destroy,
+		.gib_free_gpu = &_gib_free_gpu,
 		.gib_free = &_gib_free,
 		.gib_generate = &_gib_generate,
 		.gib_generate_nc = &_gib_generate_nc,
