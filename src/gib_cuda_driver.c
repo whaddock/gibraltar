@@ -15,6 +15,9 @@
    - Noncontiguous only occurs on CPU!
 */
 
+// We call from threads on the host, this should let us overlap.
+#define CUDA_API_PER_THREAD_DEFAULT_STREAM
+
 /* If compute capability 1.3 or higher is available, this should be set.
  * If it's set by the user at compile time, respect it.
  */
@@ -301,7 +304,7 @@ _gib_destroy(gib_context c)
 	  ERROR_CHECK_FAIL( cuStreamDestroy(&gpu_c->streams[i]) );
 #endif
 	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
-	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+	//ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
 	return GIB_SUC;
 }
@@ -322,7 +325,7 @@ _gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
 	//ERROR_CHECK_FAIL(cuMemcpyHtoD(gpu_c->stride,ld, sizeof(int)));
 	// Create NSTREAMS CUDA streams
 #ifndef DEF_STREAM
-	for (int i = 0; i < NSTREAMS; ++i)
+	while(0) for (int i = 0; i < NSTREAMS; ++i)
 	  ERROR_CHECK_FAIL( cuStreamCreate(&gpu_c->streams[i], CU_STREAM_NON_BLOCKING) );
 #endif
 	ERROR_CHECK_FAIL(
@@ -355,7 +358,7 @@ _gib_free_gpu(gib_context c)
 }
 
 static int
-_gib_generate(void *buffers, size_t buf_size, gib_context c)
+_gib_generate(void *buffers, size_t buf_size, size_t thread_offset, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
@@ -365,7 +368,7 @@ _gib_generate(void *buffers, size_t buf_size, gib_context c)
 	 * allocated.  Split it into several noncontiguous jobs.
 	 */
 	if (buf_size > gib_buf_size) {
-		int rc = gib_generate_nc(buffers, buf_size, buf_size, c);
+	  int rc = gib_generate_nc(buffers, buf_size, thread_offset, buf_size, c);
 		ERROR_CHECK_FAIL(
 			cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 		return rc;
@@ -415,17 +418,16 @@ _gib_generate(void *buffers, size_t buf_size, gib_context c)
 	/* Copy the buffers to memory */
 	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers,
+			 cuMemcpyAsync((void*)(gpu_c->buffers + thread_offset),
 				       (void*)buffers,
-				       (c->n)*buf_size,
-				       gpu_c->streams[stream]));
+				       (c->n)*buf_size, 0));
 	/* Configure and launch */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->checksum, nthreads_per_block, 1,
 					     1));
 	int offset = 0;
 	void *ptr;
-	ptr = (void *)(gpu_c->buffers);
+	ptr = (void *)(gpu_c->buffers + thread_offset);
 	ERROR_CHECK_FAIL(
 			 cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
 	offset += sizeof(ptr);
@@ -435,16 +437,15 @@ _gib_generate(void *buffers, size_t buf_size, gib_context c)
 	offset += sizeof(buf_size);
 	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->checksum, offset));
 	while(0) fprintf(stderr,"launching checksum. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->checksum, nblocks, 1, gpu_c->streams[stream]));
+	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->checksum, nblocks, 1, 0));
 
 	/* Get the results back */
-	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
+	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size + thread_offset;
 	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
 	ERROR_CHECK_FAIL(
 			 cuMemcpyAsync((void*)tmp_h,
 				       (void*)tmp_d,
-				       (c->m)*buf_size,
-				       gpu_c->streams[stream]));
+				       (c->m)*buf_size, 0));
 #else
 	// int stripe_offset = i * (c->n+c->m)*buf_size;
 	/* Copy the buffers to memory */
@@ -581,10 +582,10 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
    Bring this to life for that implementation only.
  */
 static int
-_gib_generate_nc(void *buffers, size_t buf_size, int work_size,
+_gib_generate_nc(void *buffers, size_t buf_size, size_t offset, int work_size,
 		gib_context c)
 {
-	return gib_cpu_generate_nc(buffers, buf_size, work_size, c);
+  return gib_cpu_generate_nc(buffers, buf_size, work_size, c);
 }
 
 static int

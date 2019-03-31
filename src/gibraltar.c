@@ -41,16 +41,16 @@ gib_free(void *buffers, gib_context c)
 }
 
 int
-gib_generate(void *buffers, size_t buf_size, gib_context c)
+gib_generate(void *buffers, size_t buf_size, size_t offset, gib_context c)
 {
-	return c->strategy->gib_generate(buffers, buf_size, c);
+  return c->strategy->gib_generate(buffers, buf_size, offset, c);
 }
 
 int
-gib_generate_nc(void *buffers, size_t buf_size, int work_size,
+gib_generate_nc(void *buffers, size_t buf_size, size_t offset, int work_size,
 		    gib_context c)
 {
-	return c->strategy->gib_generate_nc(buffers, buf_size, work_size, c);
+  return c->strategy->gib_generate_nc(buffers, buf_size, offset, work_size, c);
 }
 
 int

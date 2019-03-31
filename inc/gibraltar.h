@@ -30,8 +30,8 @@ int gib_destroy(struct gib_context_t *c);
 int gib_free_gpu(struct gib_context_t *c);
 int gib_alloc(void **buffers, size_t buf_size, size_t *ld, struct gib_context_t *c);
 int gib_free(void *buffers, struct gib_context_t *c);
-int gib_generate(void *buffers, size_t buf_size, struct gib_context_t *c);
-int gib_generate_nc(void *buffers, size_t buf_size, int work_size,
+int gib_generate(void *buffers, size_t buf_size, size_t offset, struct gib_context_t *c);
+int gib_generate_nc(void *buffers, size_t buf_size, size_t offset, int work_size,
 		    struct gib_context_t *c);
 int gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 		struct gib_context_t *c);

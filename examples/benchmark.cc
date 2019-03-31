@@ -17,6 +17,8 @@
 #include <sys/time.h>
 #include <cstring>
 #include <cstdio>
+#include <thread>
+#include <vector>
 using namespace std;
 
 #include <cuda_runtime_api.h>
@@ -51,10 +53,18 @@ etime(void)
 		var = (var + etime()) / iters;				\
 	} while(0)
 
+void
+checksumThread(void *ptr, size_t size, size_t offset, gib_context_t * gc, int count)
+{
+  for (int i = 0; i < count; i++) {
+    gib_generate(ptr, size, offset, gc);
+  }
+}
+
 int
 main(int argc, char **argv)
 {
-	int iters = 100;
+	int iters = 10;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
@@ -100,22 +110,26 @@ main(int argc, char **argv)
                                 void *ptr;
 				do {
 				  chk_time = -1*etime();
-				  for (int iter = 0; iter < iters; iter++) {
-				    //TODO: make this work when NSTREAMS > 2
-				    while(0) std::cerr << std::endl << "Calling gib_generate. " 
-					      << etime() << std::endl << std::flush;
-				    ptr = (! (iter % NSTREAMS)) ? 
-				      data : ((uint8_t*)data) + size * (n + m) * (iter % NSTREAMS);
-				    while(0) std::cerr << std::hex << ptr << std::endl << std::flush;
-				    gib_generate(ptr, size, gc);
+				  //checksumThread(void *ptr, size_t size, size_t offset, gib_context_t * gc, int count)
+				  std::vector<std::thread> v_ct;
+				  for (int thread = 0; thread < NSTREAMS; thread++) {
+				    ptr = (! (thread % NSTREAMS)) ? 
+				      data : ((uint8_t*)data) + size * (n + m) * (thread % NSTREAMS);
+				    std::cerr << std::hex << ptr << std::endl << std::flush;
+				    v_ct.push_back(std::thread (checksumThread, ptr, size, 
+								size * (n + m) * thread,
+								gc, iters/NSTREAMS));
 				  }
+				  std::vector<std::thread>::iterator ct;
+				  for (ct=v_ct.begin();ct!=v_ct.end();ct++)
+				    ct->join(); // wait for the v_ct threads to finish.
 				  chk_time = (chk_time + etime());
 				} while(0);
 				while(0) std::cerr << "Finished checksum. %lf\n" 
 					  << etime() << std::endl << std::flush;
 
 				gib_free_gpu(gc); // finished with this
-
+				while(0) {
 				void *dense_data;
 				unsigned char *backup_data = (unsigned char *)
 								malloc(size * (n + m));
@@ -181,6 +195,9 @@ main(int argc, char **argv)
 						exit(1);
 					}
 				}
+				gib_free(dense_data, gc);
+				free(backup_data);
+				}
 				double size_mb = size * n / 1024.0 / 1024.0;
 
 				if(j==0) printf("%8i ", size * n);
@@ -188,8 +205,6 @@ main(int argc, char **argv)
 				printf("%8.3lf %8.3lf %8.3lf ", size_mb * iters / (chk_time * 3600), chk_time,
 						size_mb / dns_time);
 
-				gib_free(dense_data, gc);
-				free(backup_data);
 				gib_destroy(gc);
 			}
 			printf("\n");

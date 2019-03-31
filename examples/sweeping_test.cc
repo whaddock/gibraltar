@@ -218,7 +218,7 @@ main(int argc, char **argv)
 
 				memcpy(backup_buf, buf,
 				       n * buf_size * sizeof(int));
-				(void)gib_generate(buf, buf_size*sizeof(int),
+				(void)gib_generate(buf, buf_size*sizeof(int), 0,
 						   gc);
 
 				if (memcmp(buf, backup_buf,
@@ -244,7 +244,7 @@ main(int argc, char **argv)
 					memcpy(backup_buf, buf,
 					       n * buf_size * sizeof(int));
 					gib_generate(buf,
-						     buf_size * sizeof(int),
+						     buf_size * sizeof(int), 0,
 						     gc);
 				}
 
