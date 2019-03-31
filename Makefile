@@ -20,6 +20,7 @@ CPPFLAGS += -DNSTREAMS=2
 LDFLAGS += -Llib/ -L/usr/local/cuda/lib64 -L../src/
 
 CFLAGS += -Wall -std=c11
+CFLAGS += -DNSTREAMS=2
 LDLIBS=-lcuda -lcudart -ljerasure 
 
 all: lib/libjerasure.a src/libgibraltar.a $(TESTS)

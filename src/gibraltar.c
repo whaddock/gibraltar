@@ -41,9 +41,9 @@ gib_free(void *buffers, gib_context c)
 }
 
 int
-gib_generate(void *buffers, size_t buf_size, gib_context c)
+gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 {
-	return c->strategy->gib_generate(buffers, buf_size, c);
+  return c->strategy->gib_generate(buffers, buf_size, stream, c);
 }
 
 int

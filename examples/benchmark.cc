@@ -17,6 +17,9 @@
 #include <sys/time.h>
 #include <cstring>
 #include <cstdio>
+#include <thread>
+#include <vector>
+
 using namespace std;
 
 #include <cuda_runtime_api.h>
@@ -51,10 +54,18 @@ etime(void)
 		var = (var + etime()) / iters;				\
 	} while(0)
 
+void
+checksumThread(void *ptr, size_t size, int stream, gib_context_t * gc, int count)
+{
+  for (int i = 0; i < count; i++) {
+    gib_generate(ptr, size, stream, gc);
+  }
+}
+
 int
 main(int argc, char **argv)
 {
-	int iters = 100;
+	int iters = 20;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
@@ -97,18 +108,19 @@ main(int argc, char **argv)
 				//#define time_iters(var, cmd, iters) do {
 				//time_iters(chk_time, gib_generate(data, size, gc), iters);	
 				// unsigned int *F;
-                                void *ptr;
+
 				do {
 				  chk_time = -1*etime();
-				  for (int iter = 0; iter < iters; iter++) {
-				    //TODO: make this work when NSTREAMS > 2
-				    while(0) std::cerr << std::endl << "Calling gib_generate. " 
-					      << etime() << std::endl << std::flush;
-				    ptr = (! (iter % NSTREAMS)) ? 
-				      data : ((uint8_t*)data) + size * (n + m) * (iter % NSTREAMS);
-				    while(0) std::cerr << std::hex << ptr << std::endl << std::flush;
-				    gib_generate(ptr, size, gc);
+				  //checksumThread(void *ptr, size_t size, int stream, gib_context_t * gc, int count)
+				  std::vector<std::thread> v_ct;
+				  for (int thread = 0; thread < NSTREAMS; thread++) {
+				    v_ct.push_back(std::thread (checksumThread, data, size, 
+								thread,
+								gc, iters/NSTREAMS));
 				  }
+				  std::vector<std::thread>::iterator ct;
+				  for (ct=v_ct.begin();ct!=v_ct.end();ct++)
+				    ct->join(); // wait for the v_ct threads to finish.
 				  chk_time = (chk_time + etime());
 				} while(0);
 				while(0) std::cerr << "Finished checksum. %lf\n" 
@@ -122,7 +134,7 @@ main(int argc, char **argv)
 
 				std::cout << "Starting decode." << std::endl << std::flush;
 
-				memcpy(backup_data, ptr, size * (n + m));
+				memcpy(backup_data, data, size * (n + m));
 
 				while(0) std::cerr << "Just released checksum memory." 
 					  << std::endl << std::flush;
@@ -137,7 +149,7 @@ main(int argc, char **argv)
 					failed[probe] = 1;
 
 					/* Destroy the buffer */
-					memset((char *) ptr + size * probe, 0, size);
+					memset((char *) data + size * probe, 0, size);
 				}
 
 				int buf_ids[256];
@@ -160,7 +172,7 @@ main(int argc, char **argv)
 				while(0) std::cerr << "Just allocated dense_data.\n" << std::endl << std::flush;
 				for (int i = 0; i < m + n; i++) {
 					memcpy((unsigned char *) dense_data + i * size,
-							(unsigned char *) ptr + buf_ids[i] * size, size);
+							(unsigned char *) data + buf_ids[i] * size, size);
 				}
 
 				gib_free(data, gc); // finished with this now.

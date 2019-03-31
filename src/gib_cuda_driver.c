@@ -355,7 +355,7 @@ _gib_free_gpu(gib_context c)
 }
 
 static int
-_gib_generate(void *buffers, size_t buf_size, gib_context c)
+_gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
@@ -411,12 +411,12 @@ _gib_generate(void *buffers, size_t buf_size, gib_context c)
 #endif
 #ifndef DEF_STREAM
 #ifdef OLD_STREAM
-	// size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
+	size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
 	/* Copy the buffers to memory */
 	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers,
-				       (void*)buffers,
+			 cuMemcpyAsync((void*)gpu_c->buffers + stripe_offset,
+				       (void*)buffers + stripe_offset,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
 	/* Configure and launch */
@@ -425,7 +425,7 @@ _gib_generate(void *buffers, size_t buf_size, gib_context c)
 					     1));
 	int offset = 0;
 	void *ptr;
-	ptr = (void *)(gpu_c->buffers);
+	ptr = (void *)(gpu_c->buffers + stripe_offset);
 	ERROR_CHECK_FAIL(
 			 cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
 	offset += sizeof(ptr);
@@ -438,8 +438,8 @@ _gib_generate(void *buffers, size_t buf_size, gib_context c)
 	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->checksum, nblocks, 1, gpu_c->streams[stream]));
 
 	/* Get the results back */
-	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
-	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
+	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size + stripe_offset;
+	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size + stripe_offset);
 	ERROR_CHECK_FAIL(
 			 cuMemcpyAsync((void*)tmp_h,
 				       (void*)tmp_d,
