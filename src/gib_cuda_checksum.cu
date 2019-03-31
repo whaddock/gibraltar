@@ -13,6 +13,7 @@ __device__ unsigned char gf_log_d[256];
 __device__ unsigned char gf_ilog_d[256];
 __constant__ byte F_d[M*N];
 __constant__ byte inv_d[N*N];
+__constant__ byte enRoundKeys_d[256];
 
 /* The "fetch" datatype is the unit for performing data copies between areas of
  * memory on the GPU.  While today's wisdom says that 32-bit types are optimal

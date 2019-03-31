@@ -26,6 +26,7 @@ int gib_init_cpu(int n, int m, struct gib_context_t **c);
 int gib_init_jerasure(int n, int m, struct gib_context_t **c);
 
 /* Common Functions */
+int set_encrypt_key(const unsigned char *userKey, struct gib_context_t *c);
 int gib_destroy(struct gib_context_t *c);
 int gib_free_gpu(struct gib_context_t *c);
 int gib_alloc(void **buffers, size_t buf_size, size_t *ld, struct gib_context_t *c);

@@ -18,6 +18,12 @@
 /* Functions */
 
 int
+set_encrypt_key(const unsigned char *userKey, gib_context c)
+{
+  return c->strategy->set_encrypt_key(userKey, c);
+}
+
+int
 gib_destroy(gib_context c)
 {
 	return c->strategy->gib_destroy(c);

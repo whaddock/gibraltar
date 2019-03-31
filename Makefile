@@ -5,6 +5,9 @@ SRC=\
 	src/gib_galois.c		\
 	src/gibraltar_cpu.c		\
 	src/gibraltar_jerasure.c	\
+	openssl/aes_core.c	\
+	openssl/AES_key_schedule.c \
+
 
 TESTS=\
 	examples/benchmark		\
@@ -19,7 +22,7 @@ CPPFLAGS += -DNSTREAMS=2
 # .e.g. -L/usr/local/cuda/lib
 LDFLAGS += -Llib/ -L/usr/local/cuda/lib64 -L../src/
 
-CFLAGS += -Wall -std=c11
+CFLAGS += -Wall -std=c11 -Iopenssl
 CFLAGS += -DNSTREAMS=2
 LDLIBS=-lcuda -lcudart -ljerasure 
 

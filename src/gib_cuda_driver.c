@@ -49,6 +49,7 @@ const char env_error_str[] =
 #include <cuda_runtime.h>
 #include <cuda.h>
 #include <math.h>
+#include "AES_key_schedule.h"
 
 int cudaInitialized = 0;
 int stream = 0;
@@ -61,6 +62,7 @@ struct gpu_context_t {
 	CUfunction recover_sparse;
 	CUfunction recover;
 	CUdeviceptr buffers;
+        AES_KEY * enRoundKeys;
   //CUdeviceptr stride;
 #ifndef DEF_STREAM
         CUstream streams[NSTREAMS];
@@ -96,6 +98,23 @@ cudaError_t checkCuda(cudaError_t result)
 			exit(EXIT_FAILURE);				\
 		}							\
 	}
+
+int _set_encrypt_key(const unsigned char *userKey, gib_context c)
+{
+  ERROR_CHECK_FAIL(
+		   cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+  gpu_context gpu_c = (gpu_context) c->acc_context;
+  fprintf(stderr,"Size of AES_Key: %i\n",sizeof(AES_KEY));
+  gpu_c->enRoundKeys = malloc(sizeof(AES_KEY));
+  int r = AES_set_encrypt_key(userKey, 256,
+			      gpu_c->enRoundKeys);
+  CUdeviceptr enRoundKeys_d;
+  ERROR_CHECK_FAIL(cuModuleGetGlobal(&enRoundKeys_d, NULL, gpu_c->module, "enRoundKeys_d"));
+  ERROR_CHECK_FAIL(cuMemcpyHtoD(enRoundKeys_d, gpu_c->enRoundKeys, sizeof(AES_KEY)));
+  ERROR_CHECK_FAIL(
+		   cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
+  return r | GIB_SUC;
+}
 
 /* Massive performance increases come from compiling the CUDA kernels
    specifically for the coding process at hand.  This does so with the
@@ -597,6 +616,7 @@ _gib_recover_nc(void *buffers, size_t buf_size, int work_size, int *buf_ids,
 
 
 struct dynamic_fp cuda = {
+		.set_encrypt_key = &_set_encrypt_key,
 		.gib_alloc = &_gib_alloc,
 		.gib_destroy = &_gib_destroy,
 		.gib_free_gpu = &_gib_free_gpu,

@@ -38,6 +38,8 @@ using namespace std;
 #define SHARDS 24
 #endif
 
+const unsigned char *key = (unsigned char *)"F19142998DC13512706DADB657029C2AFF3FFB1901FC0D667E2294C66A2FBC24";
+
 double
 etime(void)
 {
@@ -65,7 +67,7 @@ checksumThread(void *ptr, size_t size, int stream, gib_context_t * gc, int count
 int
 main(int argc, char **argv)
 {
-	int iters = 20;
+	int iters = 10;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
@@ -86,13 +88,14 @@ main(int argc, char **argv)
 					rc = gib_init_cpu(n, m, &gc);
 				else if (j == 2)
 					rc = gib_init_jerasure(n, m, &gc);
+				rc |= set_encrypt_key(key,gc);
 
 				if (rc) {
 					printf("Error:  %i\n", rc);
 					exit(EXIT_FAILURE);
 				}
 
-				size_t size = 1024 * 1024 * 8;
+				size_t size = 1024 * 1024 * 1;
 				void *data;
 				// So, how do we know that the amount of memory that will be 
 				// allocated is m * n * NSTREAMS? What should the interface

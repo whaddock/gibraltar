@@ -15,6 +15,7 @@
 struct gib_context_t;
 
 struct dynamic_fp {
+        int (*set_encrypt_key)(const unsigned char *userKey, struct gib_context_t *c);
 	int (*gib_destroy)(struct gib_context_t *c);
 	int (*gib_free_gpu)(struct gib_context_t *c);
 	int (*gib_alloc)(void **buffers, int buf_size, int *ld,
