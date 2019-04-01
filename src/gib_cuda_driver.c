@@ -58,6 +58,7 @@ struct gpu_context_t {
 	CUdevice dev;
 	CUmodule module;
 	CUcontext pCtx;
+	CUfunction aes_gcm_encrypt;
 	CUfunction checksum;
 	CUfunction recover_sparse;
 	CUfunction recover;
@@ -284,6 +285,10 @@ gib_init_cuda(int n, int m, gib_context *c)
 		cuModuleGetFunction(&(gpu_c->recover),
 				    (gpu_c->module),
 				    "_Z13gib_recover_dP11shmem_bytesii"));
+	ERROR_CHECK_FAIL(
+		cuModuleGetFunction(&(gpu_c->aes_gcm_encrypt),
+				    (gpu_c->module),
+				    "_Z24__cuda_aes_16b_encrypt__jPKjPjS1_S1_iS1_S1_S1_S1_"));
 
 	/* Initialize the math libraries */
 	gib_galois_init();
@@ -330,7 +335,7 @@ _gib_destroy(gib_context c)
 	  ERROR_CHECK_FAIL( cuStreamDestroy(&gpu_c->streams[i]) );
 #endif
 	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
-	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+	//ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
 	return GIB_SUC;
 }
@@ -448,12 +453,64 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 				       (void*)buffers + stripe_offset,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
-	/* Configure and launch */
+
+	int offset = 0;
+	void *ptr;
+	ptr = (void *)(gpu_c->buffers + stripe_offset);
+	/* Configure and launch AES encryption */
+	ERROR_CHECK_FAIL(
+			 cuFuncSetBlockShape(gpu_c->aes_gcm_encrypt, nthreads_per_block, 1,
+					     1));
+	size_t words = buf_size/4;
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &words,
+				     sizeof(words)));
+	offset += sizeof(words);
+	ptr = (void *)(gpu_c->buffers + stripe_offset);
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &ptr, sizeof(ptr)));
+	offset += sizeof(ptr);
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &ptr, sizeof(ptr)));
+	offset += sizeof(ptr);
+	CUdeviceptr iv_d, k_d, T0_d, T1_d, T2_d, T3_d;
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&iv_d, NULL, gpu_c->module, "iv"));
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &iv_d, sizeof(iv_d)));
+	offset += sizeof(iv_d);
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&k_d, NULL, gpu_c->module, "aes_key"));
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &k_d, sizeof(k_d)));
+	offset += sizeof(k_d);
+	int key_bits = 256;
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &key_bits, sizeof(key_bits)));
+	offset += sizeof(key_bits);
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T0_d, NULL, gpu_c->module, "aes_Te0"));
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T0_d, sizeof(T0_d)));
+	offset += sizeof(T0_d);
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T1_d, NULL, gpu_c->module, "aes_Te1"));
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T1_d, sizeof(T1_d)));
+	offset += sizeof(T1_d);
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T2_d, NULL, gpu_c->module, "aes_Te2"));
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T2_d, sizeof(T2_d)));
+	offset += sizeof(T2_d);
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T3_d, NULL, gpu_c->module, "aes_Te3"));
+	ERROR_CHECK_FAIL(
+			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T3_d, sizeof(T3_d)));
+	offset += sizeof(T3_d);
+	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->aes_gcm_encrypt, offset));
+	while(0) fprintf(stderr,"launching aes_gcm_encrypt. %i, %i, %i\n", c->n,c->m,buf_size);
+	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->aes_gcm_encrypt, nblocks, 1, gpu_c->streams[stream]));
+
+	/* Configure and launch erasure coding */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->checksum, nthreads_per_block, 1,
 					     1));
-	int offset = 0;
-	void *ptr;
+	offset = 0;
 	ptr = (void *)(gpu_c->buffers + stripe_offset);
 	ERROR_CHECK_FAIL(
 			 cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));

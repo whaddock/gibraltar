@@ -29,13 +29,13 @@ using namespace std;
 #define NSTREAMS 1
 #endif
 #ifndef min_test
-#define min_test 120
+#define min_test 20
 #endif
 #ifndef max_test
-#define max_test 120
+#define max_test 20
 #endif
 #ifndef SHARDS
-#define SHARDS 24
+#define SHARDS 4
 #endif
 
 const unsigned char *key = (unsigned char *)"F19142998DC13512706DADB657029C2AFF3FFB1901FC0D667E2294C66A2FBC24";
@@ -67,7 +67,7 @@ checksumThread(void *ptr, size_t size, int stream, gib_context_t * gc, int count
 int
 main(int argc, char **argv)
 {
-	int iters = 10;
+	int iters = 2;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
@@ -129,8 +129,8 @@ main(int argc, char **argv)
 				while(0) std::cerr << "Finished checksum. %lf\n" 
 					  << etime() << std::endl << std::flush;
 
-				gib_free_gpu(gc); // finished with this
-
+				// gib_free_gpu(gc); // finished with this
+				if (0) {
 				void *dense_data;
 				unsigned char *backup_data = (unsigned char *)
 								malloc(size * (n + m));
@@ -196,6 +196,9 @@ main(int argc, char **argv)
 						exit(1);
 					}
 				}
+				gib_free(dense_data, gc);
+				free(backup_data);
+				}
 				double size_mb = size * n / 1024.0 / 1024.0;
 
 				if(j==0) printf("%8i ", size * n);
@@ -203,8 +206,6 @@ main(int argc, char **argv)
 				printf("%8.3lf %8.3lf %8.3lf ", size_mb * iters / (chk_time * 3600), chk_time,
 						size_mb / dns_time);
 
-				gib_free(dense_data, gc);
-				free(backup_data);
 				gib_destroy(gc);
 			}
 			printf("\n");
