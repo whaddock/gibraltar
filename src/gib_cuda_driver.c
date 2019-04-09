@@ -22,7 +22,7 @@
 #define GIB_USE_MMAP 1
 #endif
 //#define DEF_STREAM
-#define OLD_STREAM
+//#define OLD_STREAM
 #ifndef NSTREAMS
 #define NSTREAMS 1
 #endif
@@ -64,10 +64,7 @@ struct gpu_context_t {
 	CUfunction recover;
 	CUdeviceptr buffers;
         AES_KEY * enRoundKeys;
-  //CUdeviceptr stride;
-#ifndef DEF_STREAM
         CUstream streams[NSTREAMS];
-#endif
 };
 
 typedef struct gpu_context_t * gpu_context;
@@ -409,144 +406,53 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 	int fetch_size = sizeof(int)*nthreads_per_block;
 	int nblocks = (buf_size + fetch_size - 1)/fetch_size;
 	gpu_context gpu_c = (gpu_context) c->acc_context;
-
-	// unsigned char F[256*256];
-	// gib_galois_gen_F(F, c->m, c->n);
-	// CUdeviceptr F_d;
-	// ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
-	// ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, (c->m)*(c->n)));
-#ifdef DEF_STREAM
-	/* Copy the buffers to memory */
-	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(
-		cuMemcpyHtoD(gpu_c->buffers, buffers, (c->n)*buf_size));
-	/* Configure and launch */
-	ERROR_CHECK_FAIL(
-		cuFuncSetBlockShape(gpu_c->checksum, nthreads_per_block, 1,
-				    1));
-	int offset = 0;
-	void *ptr;
-	ptr = (void *)(gpu_c->buffers);
-	ERROR_CHECK_FAIL(
-		cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
-	offset += sizeof(ptr);
-	ERROR_CHECK_FAIL(
-		cuParamSetv(gpu_c->checksum, offset, &buf_size,
-			    sizeof(buf_size)));
-	offset += sizeof(buf_size);
-	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->checksum, offset));
-	while(0) fprintf(stderr,"launching checksum. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(cuLaunchGrid(gpu_c->checksum, nblocks, 1));
-
-	/* Get the results back */
-	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
-	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
-	ERROR_CHECK_FAIL(cuMemcpyDtoH(tmp_h, tmp_d, (c->m)*buf_size));
-#endif
-#ifndef DEF_STREAM
-#ifdef OLD_STREAM
 	size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
+	void *ptr_h = (void*)((char *)buffers + stripe_offset);
+	CUdeviceptr *ptr_d = (CUdeviceptr)((char *)gpu_c->buffers + stripe_offset);
+
+	// int stripe_offset = i * (c->n+c->m)*buf_size;
 	/* Copy the buffers to memory */
-	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers + stripe_offset,
-				       (void*)buffers + stripe_offset,
+	ERROR_CHECK_FAIL(cuMemcpyAsync(ptr_d,
+				       ptr_h,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
 
 	int offset = 0;
-	void *ptr;
-	ptr = (void *)(gpu_c->buffers + stripe_offset);
+	int key_bits = 256;
+	size_t blocks = buf_size/4*4; // blocks of 4 32-bit words
 	/* Configure and launch AES encryption */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->aes_gcm_encrypt, nthreads_per_block, 1,
 					     1));
-	size_t words = buf_size/4;
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &words,
-				     sizeof(words)));
-	offset += sizeof(words);
-	ptr = (void *)(gpu_c->buffers + stripe_offset);
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &ptr, sizeof(ptr)));
-	offset += sizeof(ptr);
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &ptr, sizeof(ptr)));
-	offset += sizeof(ptr);
+
 	CUdeviceptr iv_d, k_d, T0_d, T1_d, T2_d, T3_d;
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&iv_d, NULL, gpu_c->module, "iv"));
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &iv_d, sizeof(iv_d)));
-	offset += sizeof(iv_d);
-	ERROR_CHECK_FAIL(cuModuleGetGlobal(&k_d, NULL, gpu_c->module, "aes_key"));
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &k_d, sizeof(k_d)));
-	offset += sizeof(k_d);
-	int key_bits = 256;
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &key_bits, sizeof(key_bits)));
-	offset += sizeof(key_bits);
+	ERROR_CHECK_FAIL(cuModuleGetGlobal( &k_d, NULL, gpu_c->module, "aes_key"));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T0_d, NULL, gpu_c->module, "aes_Te0"));
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T0_d, sizeof(T0_d)));
-	offset += sizeof(T0_d);
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T1_d, NULL, gpu_c->module, "aes_Te1"));
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T1_d, sizeof(T1_d)));
-	offset += sizeof(T1_d);
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T2_d, NULL, gpu_c->module, "aes_Te2"));
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T2_d, sizeof(T2_d)));
-	offset += sizeof(T2_d);
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T3_d, NULL, gpu_c->module, "aes_Te3"));
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->aes_gcm_encrypt, offset, &T3_d, sizeof(T3_d)));
-	offset += sizeof(T3_d);
-	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->aes_gcm_encrypt, offset));
+	void * args[10] = { &blocks, &ptr_d, &ptr_d, &iv_d, &k_d, &key_bits,
+			    &T0_d, &T1_d, &T2_d, &T3_d };
+
 	while(0) fprintf(stderr,"launching aes_gcm_encrypt. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->aes_gcm_encrypt, nblocks, 1, gpu_c->streams[stream]));
-
-	/* Configure and launch erasure coding */
-	ERROR_CHECK_FAIL(
-			 cuFuncSetBlockShape(gpu_c->checksum, nthreads_per_block, 1,
-					     1));
-	offset = 0;
-	ptr = (void *)(gpu_c->buffers + stripe_offset);
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->checksum, offset, &ptr, sizeof(ptr)));
-	offset += sizeof(ptr);
-	ERROR_CHECK_FAIL(
-			 cuParamSetv(gpu_c->checksum, offset, &buf_size,
-				     sizeof(buf_size)));
-	offset += sizeof(buf_size);
-	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->checksum, offset));
-	while(0) fprintf(stderr,"launching checksum. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->checksum, nblocks, 1, gpu_c->streams[stream]));
-
-	/* Get the results back */
-	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size + stripe_offset;
-	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size + stripe_offset);
-	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)tmp_h,
-				       (void*)tmp_d,
-				       (c->m)*buf_size,
-				       gpu_c->streams[stream]));
-#else
-	// int stripe_offset = i * (c->n+c->m)*buf_size;
-	/* Copy the buffers to memory */
-	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers_offset,
-				       (void*)buffers,
+	ERROR_CHECK_FAIL(cuLaunchKernel(gpu_c->aes_gcm_encrypt, nblocks, 1, 1, /* grid dim */
+					nthreads_per_block, 1, 1, /* block dim */
+					1, gpu_c->streams[stream],  /* shared mem, stream */
+					args,  /* arguments */
+					0));
+	/* Copy the encrypted K shards back to host. */
+	ERROR_CHECK_FAIL(cuMemcpyAsync(ptr_h,
+				       ptr_d,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
+
+	/* Configure and launch erasure coding */
 	while(0) fprintf(stderr,"Launching checksum kernel on GPU. nblocks: %d, nthreads/block: %d\n",
 		nblocks,nthreads_per_block);
-	/* Configure and launch */
-	int *stride;
-	stride = (int*)malloc(sizeof(int));
+
 	while(0) fprintf(stderr,"buf_size: %d\n",buf_size);
-	*stride = buf_size;
-	void *kernelArgs[] = { &gpu_c->buffers, stride };
+	void *kernelArgs[2] = { &ptr_d, &buf_size };
 	ERROR_CHECK_FAIL(
 			 cuLaunchKernel(gpu_c->checksum, nblocks, 1, 1, /* grid dim */
 					nthreads_per_block, 1, 1, /* block dim */
@@ -554,16 +460,13 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 					kernelArgs,  /* arguments */
 					0));
 	/* Get the results back */
-	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
-	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
+	CUdeviceptr tmp_d = (CUdeviceptr*)((char *)ptr_d + c->n*buf_size);
+	void *tmp_h = (void *)((unsigned char *)(ptr_h) + c->n*buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)tmp_h,
-				       (void*)tmp_d,
+			 cuMemcpyAsync(tmp_h,
+				       tmp_d,
 				       (c->m)*buf_size,
 				       gpu_c->streams[stream]));
-	}
-#endif
-#endif
 	stream = (stream + 1) % NSTREAMS;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
@@ -624,7 +527,14 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 				       (void*)buffers,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
-
+	/* Authenticated Encryption repair:
+	 * 1) check GMAC on each block
+	 * 2) blocks that fail authentication will need to be replaced
+	 *    this will require some feedback to the caller.
+	 * 3) Make sure the form is correct for Gibraltar recovery
+	 * 4) Perform erasure decode (repair)
+	 * 5) Decrypt blocks
+	 */
 	int offset = 0;
 	void *ptr;
 	ptr = (void *)(gpu_c->buffers);
@@ -641,8 +551,34 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 	ERROR_CHECK_FAIL(cuParamSetSize(gpu_c->recover, offset));
 	while(0) fprintf(stderr,"Launching gib_recover kernel\n.");
 	ERROR_CHECK_FAIL(cuLaunchGridAsync(gpu_c->recover, nblocks, 1, gpu_c->streams[stream]));
+#ifdef DECRYPT
+	// Decrypt shards
+	int offset = 0;
+	int key_bits = 256;
+	size_t blocks = buf_size/4*4; // blocks of 4 32-bit words
+	/* Configure and launch AES encryption */
+	ERROR_CHECK_FAIL(
+			 cuFuncSetBlockShape(gpu_c->aes_gcm_encrypt, nthreads_per_block, 1,
+					     1));
 
-	CUdeviceptr tmp_d = gpu_c->buffers + c->n*buf_size;
+	CUdeviceptr iv_d, k_d, T0_d, T1_d, T2_d, T3_d;
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&iv_d, NULL, gpu_c->module, "iv"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal( &k_d, NULL, gpu_c->module, "aes_key"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T0_d, NULL, gpu_c->module, "aes_Te0"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T1_d, NULL, gpu_c->module, "aes_Te1"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T2_d, NULL, gpu_c->module, "aes_Te2"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T3_d, NULL, gpu_c->module, "aes_Te3"));
+	void * args[10] = { &blocks, &ptr_d, &ptr_d, &iv_d, &k_d, &key_bits,
+			    &T0_d, &T1_d, &T2_d, &T3_d };
+
+	while(0) fprintf(stderr,"launching aes_gcm_encrypt. %i, %i, %i\n", c->n,c->m,buf_size);
+	ERROR_CHECK_FAIL(cuLaunchKernel(gpu_c->aes_gcm_encrypt, nblocks, 1, 1, /* grid dim */
+					nthreads_per_block, 1, 1, /* block dim */
+					1, gpu_c->streams[stream],  /* shared mem, stream */
+					args,  /* arguments */
+					0));
+#endif
+	CUdeviceptr tmp_d = (void*)((char *)gpu_c->buffers + c->n*buf_size);
 	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
 	while(0) fprintf(stderr,"Copying back from gib_recover\n.");
 	ERROR_CHECK_FAIL(

@@ -29,13 +29,13 @@ using namespace std;
 #define NSTREAMS 1
 #endif
 #ifndef min_test
-#define min_test 20
+#define min_test 120
 #endif
 #ifndef max_test
-#define max_test 20
+#define max_test 120
 #endif
 #ifndef SHARDS
-#define SHARDS 4
+#define SHARDS 24
 #endif
 
 const unsigned char *key = (unsigned char *)"F19142998DC13512706DADB657029C2AFF3FFB1901FC0D667E2294C66A2FBC24";
@@ -67,7 +67,7 @@ checksumThread(void *ptr, size_t size, int stream, gib_context_t * gc, int count
 int
 main(int argc, char **argv)
 {
-	int iters = 2;
+	int iters = 100;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
@@ -95,16 +95,18 @@ main(int argc, char **argv)
 					exit(EXIT_FAILURE);
 				}
 
-				size_t size = 1024 * 1024 * 1;
+				size_t size = 1024 * 1024 * 8;
 				void *data;
 				// So, how do we know that the amount of memory that will be 
 				// allocated is m * n * NSTREAMS? What should the interface
 				// look like?
 				gib_alloc(&data, size, &size, gc);
 
+				int stripe_size = size * (n + m);
 				for (int j = 0; j < NSTREAMS; j++) {
-				  for (int i = j; i < size * n * (j + 1); i++)
-					((char *) data)[i] = (unsigned char) rand() % 256;
+				  for (int i = j * stripe_size; i < stripe_size * (j + 1); i++)
+				    ((char *) data)[i] = (unsigned char) (i%26 + 61);
+				  //((char *) data)[i] = (unsigned char) rand() % 256;
 				}
 				//gib_free(data, gc);
 				//return 0;
@@ -130,6 +132,29 @@ main(int argc, char **argv)
 					  << etime() << std::endl << std::flush;
 
 				// gib_free_gpu(gc); // finished with this
+
+				std::cerr << std::hex << std::endl
+					  << (unsigned int *)((char *)data)[0] << ","
+					  << (unsigned int *)((char *)data)[1] << ","
+					  << (unsigned int *)((char *)data)[2] << ","
+					  << (unsigned int *)((char *)data)[3] << ","
+					  << (unsigned int *)((char *)data)[4] << ","
+					  << (unsigned int *)((char *)data)[5] << ","
+					  << (unsigned int *)((char *)data)[6] << ","
+					  << (unsigned int *)((char *)data)[7]
+					  << std::endl;
+				char *ptr = (char *)data + n*size;
+				std::cerr << std::hex << std::endl
+					  << (( int *)ptr[0]) << ","
+					  << (( int *)ptr[1]) << ","
+					  << (( int *)ptr[2]) << ","
+					  << (( int *)ptr[3]) << ","
+					  << (( int *)ptr[4]) << ","
+					  << (( int *)ptr[5]) << ","
+					  << (( int *)ptr[6]) << ","
+					  << (( int *)ptr[7])
+					  << std::endl;
+
 				if (0) {
 				void *dense_data;
 				unsigned char *backup_data = (unsigned char *)
