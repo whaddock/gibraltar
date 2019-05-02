@@ -8,6 +8,8 @@
  *
  */
 
+#define RKEY_SIZE 256
+
 typedef unsigned int uint32_t;
 typedef unsigned char byte;
 typedef unsigned char uint8_t;
@@ -15,7 +17,7 @@ __device__ unsigned char gf_log_d[256];
 __device__ unsigned char gf_ilog_d[256];
 __constant__ byte F_d[M*N];
 __constant__ byte inv_d[N*N];
-__constant__ uint32_t aes_key[4*(14+1)];
+__constant__ byte aes_key_d[RKEY_SIZE];
 __device__ __constant__ byte iv[16] = {
     0x00U, 0x01U, 0x02U, 0x03,
     0x04U, 0x05U, 0x06U, 0x07,
@@ -412,14 +414,10 @@ __global__ void __cuda_aes_16b_encrypt__(
     s1 ^= d[p+1];
     s2 ^= d[p+2];
     s3 ^= d[p+3];
-#define ENCRYPT
-#ifdef ENCRYPT
     out[p] = s0;
     out[p+1] = s1;
     out[p+2] = s2;
     out[p+3] = s3;
-#endif
-  __syncthreads();
   }
 }
 

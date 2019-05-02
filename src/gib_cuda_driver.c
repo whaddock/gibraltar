@@ -117,11 +117,14 @@ int _set_encrypt_key(const unsigned char *userKey, gib_context c)
   fprintf(stderr,"Size of IV: %i\n",sizeof(iv));
   */
 
+  int bytes;
   CUdeviceptr aes_key_d, iv_d;
-  ERROR_CHECK_FAIL(cuModuleGetGlobal(&aes_key_d, NULL, gpu_c->module, "aes_key"));
-  ERROR_CHECK_FAIL(cuMemcpyHtoD(aes_key_d, gpu_c->enRoundKeys, sizeof(AES_KEY)));
+  ERROR_CHECK_FAIL(cuModuleGetGlobal(&aes_key_d, &bytes, gpu_c->module, "aes_key_d"));
+  fprintf(stderr,"aes_key_d: %p\n",aes_key_d);
+  fprintf(stderr,"Size of aes_key_d: %u\n",bytes);
+  ERROR_CHECK_FAIL(cuMemcpy(aes_key_d, gpu_c->enRoundKeys, sizeof(AES_KEY)));
   //ERROR_CHECK_FAIL(cuModuleGetGlobal(&iv_d, NULL, gpu_c->module, "iv"));
-  //ERROR_CHECK_FAIL(cuMemcpyHtoD(iv_d, iv, IV_LENGTH));
+  //ERROR_CHECK_FAIL(cuMemcpy(iv_d, iv, IV_LENGTH));
   ERROR_CHECK_FAIL(
 		   cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
   return r | GIB_SUC;
@@ -161,6 +164,7 @@ gib_cuda_compile(int n, int m, char *filename)
 	char *const argv[] = {
 		executable,
 		"--ptx",
+		"-lineinfo",
 		argv1,
 		argv2,
 		src_filename,
@@ -296,12 +300,12 @@ gib_init_cuda(int n, int m, gib_context *c)
 	CUdeviceptr log_d, ilog_d, F_d;
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&log_d, NULL, gpu_c->module,
 					   "gf_log_d"));
-	ERROR_CHECK_FAIL(cuMemcpyHtoD(log_d, gib_gf_log, 256));
+	ERROR_CHECK_FAIL(cuMemcpy(log_d, gib_gf_log, 256));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&ilog_d, NULL, gpu_c->module,
 					   "gf_ilog_d"));
-	ERROR_CHECK_FAIL(cuMemcpyHtoD(ilog_d, gib_gf_ilog, 256));
+	ERROR_CHECK_FAIL(cuMemcpy(ilog_d, gib_gf_ilog, 256));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
-	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, F, m*n));
+	ERROR_CHECK_FAIL(cuMemcpy(F_d, F, m*n));
 #if !GIB_USE_MMAP
 	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers), (n+m)*gib_buf_size));
 #endif
@@ -346,11 +350,12 @@ _gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
 	while(0) fprintf(stderr,"allocating buffers. %i, %i, %i, %i\n", c->n,c->m,buf_size,NSTREAMS);
 	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*NSTREAMS));
 	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers, (c->n+c->m)*buf_size*NSTREAMS));
+	fprintf(stderr,"gpu_c->buffers: %p\n",gpu_c->buffers);
 	//	ERROR_CHECK_FAIL(cudaMalloc(gpu_c->buffers, (c->n+c->m)*buf_size));
 
 	*ld = buf_size;
 	//ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->stride, sizeof(int)));
-	//ERROR_CHECK_FAIL(cuMemcpyHtoD(gpu_c->stride,ld, sizeof(int)));
+	//ERROR_CHECK_FAIL(cuMemcpy(gpu_c->stride,ld, sizeof(int)));
 	// Create NSTREAMS CUDA streams
 #ifndef DEF_STREAM
 	for (int i = 0; i < NSTREAMS; ++i)
@@ -419,20 +424,20 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 
 	int offset = 0;
 	int key_bits = 256;
-	size_t blocks = buf_size/4*4; // blocks of 4 32-bit words
+	size_t blocks = buf_size/(4*4); // blocks of 4 32-bit words
 	/* Configure and launch AES encryption */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->aes_gcm_encrypt, nthreads_per_block, 1,
 					     1));
 
-	CUdeviceptr iv_d, k_d, T0_d, T1_d, T2_d, T3_d;
+	CUdeviceptr iv_d, aes_key_d, T0_d, T1_d, T2_d, T3_d;
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&iv_d, NULL, gpu_c->module, "iv"));
-	ERROR_CHECK_FAIL(cuModuleGetGlobal( &k_d, NULL, gpu_c->module, "aes_key"));
+	ERROR_CHECK_FAIL(cuModuleGetGlobal( &aes_key_d, NULL, gpu_c->module, "aes_key_d"));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T0_d, NULL, gpu_c->module, "aes_Te0"));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T1_d, NULL, gpu_c->module, "aes_Te1"));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T2_d, NULL, gpu_c->module, "aes_Te2"));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&T3_d, NULL, gpu_c->module, "aes_Te3"));
-	void * args[10] = { &blocks, &ptr_d, &ptr_d, &iv_d, &k_d, &key_bits,
+	void * args[10] = { &blocks, &ptr_d, &ptr_d, &iv_d, &aes_key_d, &key_bits,
 			    &T0_d, &T1_d, &T2_d, &T3_d };
 
 	while(0) fprintf(stderr,"launching aes_gcm_encrypt. %i, %i, %i\n", c->n,c->m,buf_size);
@@ -514,7 +519,7 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 	CUdeviceptr F_d;
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
 	while(0) fprintf(stderr,"got F_d pointer. %i, %i, %i\n", c->n,c->m,buf_size);
-	ERROR_CHECK_FAIL(cuMemcpyHtoD(F_d, modA+n*n, (c->m)*(c->n)));
+	ERROR_CHECK_FAIL(cuMemcpy(F_d, modA+n*n, (c->m)*(c->n)));
 
 	while(0) fprintf(stderr,"finished copying GF. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(cuFuncSetBlockShape(gpu_c->recover,
