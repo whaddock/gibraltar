@@ -11,6 +11,7 @@
 #define N 10
 #define M 4
 #define RKEY_SIZE 256
+#define IV_SIZE 16
 
 typedef unsigned int uint32_t;
 typedef unsigned char byte;
@@ -19,7 +20,7 @@ __device__ byte gf_ilog_d[256];
 __constant__ byte F_d[M*N];
 __constant__ byte inv_d[N*N];
 __constant__ byte aes_key_d[RKEY_SIZE];
-__device__ __constant__ byte iv_d[16];
+__constant__ byte iv_d[IV_SIZE];
 
 /* = {
     0x00U, 0x01U, 0x02U, 0x03,
@@ -55,7 +56,7 @@ union shmem_bytes {
   byte b[SOF];
 };
 
-/* Shared memory copies of pertinent data */
+/* Shared memory copies of pertinent dataOB */
 __shared__ byte sh_log[256];
 __shared__ byte sh_ilog[256];
 
@@ -169,7 +170,7 @@ __global__ void gib_checksum_d(shmem_bytes *bufs, int buf_size) {
   //__syncthreads();
 }
 
-__global__ void __cuda_aes_16b_encrypt__(
+__device__ void __aes_16b_encrypt__(
 					 unsigned int n, // number of blocks
 					 const uint32_t* in, // ptr to 4*n 32-bit words of data
 					 uint32_t* out, //  ptr to 4*n 32-bit words of data
@@ -690,3 +691,35 @@ __device__ __constant__ uint32_t aes_Te3[256] = {
      0x82c34141U, 0x29b09999U, 0x5a772d2dU, 0x1e110f0fU,
      0x7bcbb0b0U, 0xa8fc5454U, 0x6dd6bbbbU, 0x2c3a1616U,
 };
+
+__global__ void __cuda_aes_16b_encrypt__(
+					 unsigned int n, // number of blocks
+					 const uint32_t* in, // ptr to 4*n 32-bit words of data
+					 uint32_t* out, //  ptr to 4*n 32-bit words of data
+					 uint32_t* iv, // initialization vector
+					 uint32_t* k, // aes_key round keys
+					 const int key_bits, // 256
+					 uint32_t* T0, // CUdeviceptr to aes_Te0
+					 uint32_t* T1, // CUdeviceptr to aes_Te1
+					 uint32_t* T2, // CUdeviceptr to aes_Te2
+					 uint32_t* T3  // CUdeviceptr to aes_Te3
+					 )
+{
+/* 
+ * Implement the AES GCM Authenticated Encryption according to 
+ * NIST 800-38D. This module computes the GHASH along with
+ * encrypting the data.
+ */
+
+  uint32_t bi = ((blockIdx.x * blockDim.x) + threadIdx.x); // block index
+  if(bi == 0) {
+    int4 H = make_int4(0,0,0,0); // H is the H0 hash block.
+    __aes_16b_encrypt__( 1, (uint32_t *)&H, (uint32_t *)&H, (uint32_t *)&H, k, key_bits, T0, T1, T2, T3);
+    out[0] = H.x;
+    out[1] = H.y;
+    out[2] = H.z;
+    out[3] = H.w;
+
+  }
+}
+
