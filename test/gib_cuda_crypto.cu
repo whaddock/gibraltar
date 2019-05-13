@@ -414,10 +414,10 @@ __device__ void __aes_16b_encrypt__(
       (T2[(t2 >> 24)       ] & 0xff000000) ^
       k[43+key_index_sum];
 
-    s0 ^= in[p  ];
-    s1 ^= in[p+1];
-    s2 ^= in[p+2];
-    s3 ^= in[p+3];
+    //s0 ^= in[p  ];
+    //s1 ^= in[p+1];
+    //s2 ^= in[p+2];
+    //s3 ^= in[p+3];
 
     out[p] = s0;
     out[p+1] = s1;
@@ -713,12 +713,22 @@ __global__ void __cuda_aes_16b_encrypt__(
 
   uint32_t bi = ((blockIdx.x * blockDim.x) + threadIdx.x); // block index
   if(bi == 0) {
-    int4 H = make_int4(0,0,0,0); // H is the H0 hash block.
+    // Generate H0
+    uint4 H = make_uint4(0,0,0,0); // H is the H0 hash block.
     __aes_16b_encrypt__( 1, (uint32_t *)&H, (uint32_t *)&H, (uint32_t *)&H, k, key_bits, T0, T1, T2, T3);
-    out[0] = H.x;
-    out[1] = H.y;
-    out[2] = H.z;
-    out[3] = H.w;
+
+    // Generate the IV
+    uint4 IV = make_uint4(0,0,0,0);
+    IV.x = ((int *)iv_d)[0];
+    IV.y = ((int *)iv_d)[1];
+    IV.z = ((int *)iv_d)[2];
+
+    __aes_16b_encrypt__( n, in, out, (uint32_t *)&IV, k, key_bits, T0, T1, T2, T3);
+
+    //out[0] = IV.x;
+    //out[1] = IV.y;
+    //out[2] = IV.z;
+    //out[3] = IV.w;
 
   }
 }

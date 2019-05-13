@@ -91,10 +91,10 @@ test_config(gib_context gc, int *fail_config, int *buf,
 		}
 	}
 
-	int buf_ids[256];
+	unsigned int buf_ids[256];
 	memcpy(buf_ids, good_buffers, gc->n*sizeof(int));
 	memcpy(buf_ids+gc->n, bad_buffers, nbad*sizeof(int));
-	gib_recover(buf, buf_size*sizeof(int), buf_ids, nbad, gc);
+	gib_recover2(buf, buf_size*sizeof(int), buf_ids, nbad, gc);
 
 	void *tmp_buf = malloc(sizeof(int)*buf_size);
 	for (int i = 0; i < gc->n; i++) {

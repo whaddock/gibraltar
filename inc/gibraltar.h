@@ -22,6 +22,7 @@ extern "C" {
 struct gib_context_t;
 
 int gib_init_cuda(int n, int m, struct gib_context_t **c);
+int gib_init_cuda2(int n, int m, unsigned int chunk_size, struct gib_context_t **c);
 int gib_init_cpu(int n, int m, struct gib_context_t **c);
 int gib_init_jerasure(int n, int m, struct gib_context_t **c);
 
@@ -32,9 +33,12 @@ int gib_free_gpu(struct gib_context_t *c);
 int gib_alloc(void **buffers, size_t buf_size, size_t *ld, struct gib_context_t *c);
 int gib_free(void *buffers, struct gib_context_t *c);
 int gib_generate(void *buffers, size_t buf_size, int stream, struct gib_context_t *c);
+int gib_generate2(void *buffers, unsigned int buf_size, struct gib_context_t *c);
 int gib_generate_nc(void *buffers, size_t buf_size, int work_size,
 		    struct gib_context_t *c);
-int gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
+int gib_recover(void *buffers, size_t buf_size, unsigned int *buf_ids, int recover_last,
+		int stream, struct gib_context_t *c);
+int gib_recover2(void *buffers, unsigned int buf_size, unsigned int *buf_ids, int recover_last,
 		struct gib_context_t *c);
 int gib_recover_nc(void *buffers, size_t buf_size, int work_size, int *buf_ids,
 		   int recover_last, struct gib_context_t *c);

@@ -180,7 +180,7 @@ main(int argc, char **argv)
 					memset((char *) data + size * probe, 0, size);
 				}
 
-				int buf_ids[256];
+				unsigned int buf_ids[256];
 				int index = 0;
 				int f_index = n;
 				for (int i = 0; i < n; i++) {
@@ -210,7 +210,7 @@ main(int argc, char **argv)
 						size * nfailed);
 				while(0) std::cerr << "Calling gib_recover.\n" << std::endl << std::flush;
 				time_iters(dns_time,
-					   gib_recover(dense_data, size, buf_ids, nfailed, gc),
+					   gib_recover2(dense_data, size, buf_ids, nfailed, gc),
 					   iters);
 
 				while(0) for (int i = 0; i < m + n; i++) {

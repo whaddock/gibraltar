@@ -52,6 +52,11 @@ gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
   return c->strategy->gib_generate(buffers, buf_size, stream, c);
 }
 
+gib_generate2(void *buffers, unsigned int buf_size, gib_context c)
+{
+  return c->strategy->gib_generate2(buffers, buf_size, c);
+}
+
 int
 gib_generate_nc(void *buffers, size_t buf_size, int work_size,
 		    gib_context c)
@@ -60,10 +65,18 @@ gib_generate_nc(void *buffers, size_t buf_size, int work_size,
 }
 
 int
-gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
-		gib_context c)
+gib_recover(void *buffers, size_t buf_size, unsigned int *buf_ids, int recover_last,
+	    int stream, gib_context c)
 {
 	return c->strategy->gib_recover(buffers, buf_size, buf_ids,
+					recover_last, stream, c);
+}
+
+int
+gib_recover2(void *buffers, unsigned int buf_size, unsigned int *buf_ids, int recover_last,
+		gib_context c)
+{
+	return c->strategy->gib_recover2(buffers, buf_size, buf_ids,
 					recover_last, c);
 }
 

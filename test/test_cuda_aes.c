@@ -313,7 +313,7 @@ main(int argc, char **argv)
 				     "iv_d"));
   fprintf(stderr,"iv_d: %p\n",iv_d);
   fprintf(stderr,"Size of iv_d: %u\n",bytes);
-  ERROR_CHECK_FAIL(cuMemcpy(iv_d, iv, 16));
+  ERROR_CHECK_FAIL(cuMemcpy(iv_d, iv, IV_LENGTH));
 
   ERROR_CHECK_FAIL(cuModuleGetGlobal(&T0_d, &bytes, gpu_c->module, "aes_Te0"));
   fprintf(stderr,"aes_Te0: %p\n",T0_d);

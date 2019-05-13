@@ -24,7 +24,7 @@
 //#define DEF_STREAM
 //#define OLD_STREAM
 #ifndef NSTREAMS
-#define NSTREAMS 1
+#define NSTREAMS 2
 #endif
 
 /* Size of each GPU buffer; n+m will be allocated */
@@ -50,21 +50,26 @@ const char env_error_str[] =
 #include <cuda.h>
 #include <math.h>
 #include "AES_key_schedule.h"
+#include <pthread.h>
+
 
 int cudaInitialized = 0;
-int stream = 0;
+int g_stream = 0;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 struct gpu_context_t {
-	CUdevice dev;
-	CUmodule module;
-	CUcontext pCtx;
-	CUfunction aes_gcm_encrypt;
-	CUfunction checksum;
-	CUfunction recover_sparse;
-	CUfunction recover;
-	CUdeviceptr buffers;
-        AES_KEY * enRoundKeys;
-        CUstream streams[NSTREAMS];
+  CUdevice dev;
+  CUmodule module;
+  CUcontext pCtx;
+  CUfunction aes_gcm_encrypt;
+  CUfunction checksum;
+  CUfunction recover_sparse;
+  CUfunction recover;
+  CUdeviceptr buffers;
+  AES_KEY * enRoundKeys;
+  CUstream streams[NSTREAMS];
+  void *data; // Host pinned buffers
+  size_t shard_size; // size of data shards
 };
 
 typedef struct gpu_context_t * gpu_context;
@@ -119,7 +124,7 @@ int _set_encrypt_key(const unsigned char *userKey, gib_context c)
 
   int bytes;
   CUdeviceptr aes_key_d, iv_d;
-  ERROR_CHECK_FAIL(cuModuleGetGlobal(&aes_key_d, &bytes, gpu_c->module, "aes_key_d"));
+  //  ERROR_CHECK_FAIL(cuModuleGetGlobal(&aes_key_d, &bytes, gpu_c->module, "aes_key_d"));
   fprintf(stderr,"aes_key_d: %p\n",aes_key_d);
   fprintf(stderr,"Size of aes_key_d: %u\n",bytes);
   ERROR_CHECK_FAIL(cuMemcpy(aes_key_d, gpu_c->enRoundKeys, sizeof(AES_KEY)));
@@ -177,6 +182,31 @@ gib_cuda_compile(int n, int m, char *filename)
 	perror("execve(nvcc)");
 	fflush(0);
 	exit(-1);
+}
+
+static int
+_gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
+{
+	ERROR_CHECK_FAIL(
+		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+	gpu_context gpu_c = (gpu_context) c->acc_context;
+	while(0) fprintf(stderr,"allocating buffers. %i, %i, %i, %i\n", c->n,c->m,buf_size,NSTREAMS);
+	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*NSTREAMS));
+	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers, (c->n+c->m)*buf_size*NSTREAMS));
+	fprintf(stderr,"gpu_c->buffers: %p\n",gpu_c->buffers);
+	//	ERROR_CHECK_FAIL(cudaMalloc(gpu_c->buffers, (c->n+c->m)*buf_size));
+
+	*ld = buf_size;
+	//ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->stride, sizeof(int)));
+	//ERROR_CHECK_FAIL(cuMemcpy(gpu_c->stride,ld, sizeof(int)));
+	// Create NSTREAMS CUDA streams
+#ifndef DEF_STREAM
+	for (int i = 0; i < NSTREAMS; ++i)
+	  ERROR_CHECK_FAIL( cuStreamCreate(&gpu_c->streams[i], CU_STREAM_NON_BLOCKING) );
+#endif
+	ERROR_CHECK_FAIL(
+		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
+	return GIB_SUC;
 }
 
 int
@@ -286,10 +316,10 @@ gib_init_cuda(int n, int m, gib_context *c)
 		cuModuleGetFunction(&(gpu_c->recover),
 				    (gpu_c->module),
 				    "_Z13gib_recover_dP11shmem_bytesii"));
-	ERROR_CHECK_FAIL(
-		cuModuleGetFunction(&(gpu_c->aes_gcm_encrypt),
-				    (gpu_c->module),
-				    "_Z24__cuda_aes_16b_encrypt__jPKjPjS1_S1_iS1_S1_S1_S1_"));
+	//	ERROR_CHECK_FAIL(
+	//		cuModuleGetFunction(&(gpu_c->aes_gcm_encrypt),
+	//				    (gpu_c->module),
+	//				    "_Z24__cuda_aes_16b_encrypt__jPKjPjS1_S1_iS1_S1_S1_S1_"));
 
 	/* Initialize the math libraries */
 	gib_galois_init();
@@ -306,9 +336,6 @@ gib_init_cuda(int n, int m, gib_context *c)
 	ERROR_CHECK_FAIL(cuMemcpy(ilog_d, gib_gf_ilog, 256));
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpy(F_d, F, m*n));
-#if !GIB_USE_MMAP
-	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers), (n+m)*gib_buf_size));
-#endif
 	ERROR_CHECK_FAIL(cuCtxPopCurrent((&gpu_c->pCtx)));
 	free(filename);
 
@@ -316,6 +343,149 @@ gib_init_cuda(int n, int m, gib_context *c)
 	(*c)->strategy = &cuda;
 
 	return GIB_SUC;
+}
+
+int
+gib_init_cuda2(int n, int m, unsigned int chunk_size, gib_context *c)
+{
+
+  /* Initializes the CPU and GPU runtimes. */
+  static CUcontext pCtx;
+  static CUdevice dev;
+  if (m < 2 || n < 2) {
+    fprintf(stderr, "It makes little sense to use Reed-Solomon "
+	    "coding when n or m is less than\ntwo. Use XOR or "
+	    "replication instead.\n");
+    exit(1);
+  }
+  int rc_i = gib_cpu_init(n,m,c);
+  if (rc_i != GIB_SUC) {
+    fprintf(stderr, "gib_cpu_init returned %i\n", rc_i);
+    exit(EXIT_FAILURE);
+  }
+
+  int gpu_id = 0;
+  if (!cudaInitialized) {
+    /* Initialize the CUDA runtime */
+    int device_count;
+    ERROR_CHECK_FAIL(cuInit(0));
+    ERROR_CHECK_FAIL(cuDeviceGetCount(&device_count));
+    if (getenv("GIB_GPU_ID") != NULL) {
+      gpu_id = atoi(getenv("GIB_GPU_ID"));
+      if (device_count <= gpu_id) {
+	fprintf(stderr, "GIB_GPU_ID is set to an "
+		"invalid value (%i).  There are only "
+		"%i GPUs in the\n system.  Please "
+		"specify another value.\n", gpu_id,
+		device_count);
+	exit(-1);
+      }
+    }
+    cudaInitialized = 1;
+  }
+  ERROR_CHECK_FAIL(cuDeviceGet(&dev, gpu_id));
+#if GIB_USE_MMAP
+  ERROR_CHECK_FAIL(cuCtxCreate(&pCtx, CU_CTX_MAP_HOST, dev));
+#else
+  ERROR_CHECK_FAIL(cuCtxCreate(&pCtx, 0, dev));
+#endif
+
+  /* Initialize the Gibraltar context */
+  gpu_context gpu_c = (gpu_context)malloc(sizeof(struct gpu_context_t));
+  gpu_c->dev = dev;
+  gpu_c->pCtx = pCtx;
+  (*c)->acc_context = (void *)gpu_c;
+
+  /* Determine whether the PTX has been generated or not by
+   * attempting to open it read-only.
+   */
+  if (getenv("GIB_CACHE_DIR") == NULL) {
+    fprintf(stderr, "%s", env_error_str);
+    exit(-1);
+  }
+
+  /* Try to open the appropriate ptx file.  If it doesn't exist, compile a
+   * new one.
+   */
+  int filename_len = strlen(getenv("GIB_CACHE_DIR")) +
+    strlen("/gib_cuda_+.ptx") + log10(n)+1 + log10(m)+1 + 1;
+  char *filename = (char *)malloc(filename_len);
+  sprintf(filename, "%s/gib_cuda_%i+%i.ptx", getenv("GIB_CACHE_DIR"), n, m);
+
+  FILE *fp = fopen(filename, "r");
+  if (fp == NULL) {
+    /* Compile the ptx and open it */
+    int pid = fork();
+    if (pid == -1) {
+      perror("Forking for nvcc");
+      exit(-1);
+    }
+    if (pid == 0) {
+      gib_cuda_compile(n, m, filename); /* never returns */
+    }
+    int status;
+    wait(&status);
+    if (status != 0) {
+      printf("Waiting for the compiler failed.\n");
+      printf("The exit status was %i\n",
+	     WEXITSTATUS(status));
+      printf("The child did%s exit normally.\n",
+	     (WIFEXITED(status)) ? "" : " NOT");
+
+      exit(-1);
+    }
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+      perror(filename);
+      exit(-1);
+    }
+  }
+  fclose(fp);
+
+  /* If we got here, the ptx file exists.  Use it. */
+  ERROR_CHECK_FAIL(cuModuleLoad(&(gpu_c->module), filename));
+  ERROR_CHECK_FAIL(
+		   cuModuleGetFunction(&(gpu_c->checksum),
+				       (gpu_c->module),
+				       "_Z14gib_checksum_dP11shmem_bytesi"));
+  ERROR_CHECK_FAIL(
+		   cuModuleGetFunction(&(gpu_c->recover),
+				       (gpu_c->module),
+				       "_Z13gib_recover_dP11shmem_bytesii"));
+  ERROR_CHECK_FAIL(
+		   cuModuleGetFunction(&(gpu_c->aes_gcm_encrypt),
+				       (gpu_c->module),
+				       "_Z24__cuda_aes_16b_encrypt__jPKjPjS1_S1_iS1_S1_S1_S1_"));
+
+  /* Initialize the math libraries */
+  gib_galois_init();
+  unsigned char F[256*256];
+  gib_galois_gen_F(F, m, n);
+
+  /* Initialize/Allocate GPU-side structures */
+  CUdeviceptr log_d, ilog_d, F_d;
+  ERROR_CHECK_FAIL(cuModuleGetGlobal(&log_d, NULL, gpu_c->module,
+				     "gf_log_d"));
+  ERROR_CHECK_FAIL(cuMemcpy(log_d, gib_gf_log, 256));
+  ERROR_CHECK_FAIL(cuModuleGetGlobal(&ilog_d, NULL, gpu_c->module,
+				     "gf_ilog_d"));
+  ERROR_CHECK_FAIL(cuMemcpy(ilog_d, gib_gf_ilog, 256));
+  ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
+  ERROR_CHECK_FAIL(cuMemcpy(F_d, F, m*n));
+
+  //set strategy for other functions
+  (*c)->strategy = &cuda;
+
+
+
+
+  gpu_c->shard_size = chunk_size;
+  int rc = _gib_alloc(&gpu_c->data, gpu_c->shard_size, &gpu_c->shard_size, c);
+
+  ERROR_CHECK_FAIL(cuCtxPopCurrent((&gpu_c->pCtx)));
+  free(filename);
+
+  return GIB_SUC + rc;
 }
 
 static int
@@ -338,31 +508,6 @@ _gib_destroy(gib_context c)
 	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
 	//ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
-	return GIB_SUC;
-}
-
-static int
-_gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
-{
-	ERROR_CHECK_FAIL(
-		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
-	gpu_context gpu_c = (gpu_context) c->acc_context;
-	while(0) fprintf(stderr,"allocating buffers. %i, %i, %i, %i\n", c->n,c->m,buf_size,NSTREAMS);
-	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*NSTREAMS));
-	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers, (c->n+c->m)*buf_size*NSTREAMS));
-	fprintf(stderr,"gpu_c->buffers: %p\n",gpu_c->buffers);
-	//	ERROR_CHECK_FAIL(cudaMalloc(gpu_c->buffers, (c->n+c->m)*buf_size));
-
-	*ld = buf_size;
-	//ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->stride, sizeof(int)));
-	//ERROR_CHECK_FAIL(cuMemcpy(gpu_c->stride,ld, sizeof(int)));
-	// Create NSTREAMS CUDA streams
-#ifndef DEF_STREAM
-	for (int i = 0; i < NSTREAMS; ++i)
-	  ERROR_CHECK_FAIL( cuStreamCreate(&gpu_c->streams[i], CU_STREAM_NON_BLOCKING) );
-#endif
-	ERROR_CHECK_FAIL(
-		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
 }
 
@@ -425,6 +570,7 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 	int offset = 0;
 	int key_bits = 256;
 	size_t blocks = buf_size/(4*4); // blocks of 4 32-bit words
+#ifdef ENCRYPT
 	/* Configure and launch AES encryption */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->aes_gcm_encrypt, nthreads_per_block, 1,
@@ -451,7 +597,7 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 				       ptr_d,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
-
+#endif
 	/* Configure and launch erasure coding */
 	while(0) fprintf(stderr,"Launching checksum kernel on GPU. nblocks: %d, nthreads/block: %d\n",
 		nblocks,nthreads_per_block);
@@ -472,15 +618,37 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 				       tmp_d,
 				       (c->m)*buf_size,
 				       gpu_c->streams[stream]));
-	stream = (stream + 1) % NSTREAMS;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
-	    gib_context c)
+_gib_generate2(void *buffers, unsigned int buf_size, gib_context c)
+{
+  ERROR_CHECK_FAIL(
+		   cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+  gpu_context gpu_c = (gpu_context) c->acc_context;
+  pthread_mutex_lock(&mutex);
+  g_stream = (g_stream + 1) % NSTREAMS;
+  int l_stream = g_stream;
+  pthread_mutex_lock(&mutex);
+  size_t stream_frame_start = l_stream * buf_size * (c->n + c->m);
+  // Copy data from *buffers, a k+m array of char* pointers to buf_size strings
+  for(size_t i = 0;i<c->n;i++)
+    memcpy((void*)(((char*)gpu_c->data)[stream_frame_start + i * buf_size]),(void*)(((char*)buffers)[i]),buf_size);
+
+  int rc = _gib_generate((void*)(((char*)gpu_c->data)[stream_frame_start]), (size_t)buf_size, l_stream, c);
+  for(size_t i = c->n;i<c->n+c->m;i++)
+    memcpy((void*)(((char*)buffers)[i]),(void*)(((char*)gpu_c->data)[stream_frame_start + i * buf_size]), buf_size);
+  ERROR_CHECK_FAIL(
+		   cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
+  return GIB_SUC + rc;
+}
+
+static int
+_gib_recover(void *buffers, size_t buf_size, unsigned int *buf_ids, int recover_last,
+	     int stream, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
@@ -607,6 +775,32 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
    TODO:  The MMapped version can benefit from this if the buffer isn't full.
    Bring this to life for that implementation only.
  */
+
+static int
+_gib_recover2(void *buffers, unsigned int buf_size, unsigned int *buf_ids, int recover_last,
+	      gib_context c)
+{
+  ERROR_CHECK_FAIL(
+		   cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
+  gpu_context gpu_c = (gpu_context) c->acc_context;
+  pthread_mutex_lock(&mutex);
+  g_stream = (g_stream + 1) % NSTREAMS;
+  int l_stream = g_stream;
+  pthread_mutex_lock(&mutex);
+  size_t stream_frame_start = l_stream * buf_size * (c->n + c->m);
+  // Copy data from *buffers, a k+m array of char* pointers to buf_size strings
+  for(size_t i = 0;i<c->n;i++)
+    memcpy((void*)(((char*)gpu_c->data)[stream_frame_start + i * buf_size]),(void*)(((char*)buffers)[i]),buf_size);
+
+  int rc = _gib_recover((void*)(((char*)gpu_c->data)[stream_frame_start]),
+			(size_t)buf_size, buf_ids, recover_last, l_stream, c);
+  for(size_t i = c->n;i<c->n+c->m;i++)
+    memcpy((void*)(((char*)buffers)[i]),(void*)(((char*)gpu_c->data)[stream_frame_start + i * buf_size]), buf_size);
+  ERROR_CHECK_FAIL(
+		   cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
+  return GIB_SUC + rc;
+}
+
 static int
 _gib_generate_nc(void *buffers, size_t buf_size, int work_size,
 		gib_context c)
@@ -630,8 +824,10 @@ struct dynamic_fp cuda = {
 		.gib_free_gpu = &_gib_free_gpu,
 		.gib_free = &_gib_free,
 		.gib_generate = &_gib_generate,
+		.gib_generate2 = &_gib_generate2,
 		.gib_generate_nc = &_gib_generate_nc,
 		.gib_recover = &_gib_recover,
+		.gib_recover2 = &_gib_recover2,
 		.gib_recover_nc = &_gib_recover_nc,
 };
 
