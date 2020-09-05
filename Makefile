@@ -11,6 +11,7 @@ SRC=\
 
 TESTS=\
 	examples/benchmark		\
+	examples/benchmark_aes_k40	\
 	examples/sweeping_test		\
 
 # Expect CUDA library include directive to already be in CPPFLAGS,
