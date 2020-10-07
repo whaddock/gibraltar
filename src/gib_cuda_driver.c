@@ -17,6 +17,7 @@
 
 /* If compute capability 1.3 or higher is available, this should be set.
  * If it's set by the user at compile time, respect it.
+ * HWH: Streams requires compute capability >= 2.0.
  */
 #ifndef GIB_USE_MMAP
 #define GIB_USE_MMAP 1
@@ -26,9 +27,12 @@
 #ifndef NSTREAMS
 #define NSTREAMS 1
 #endif
+#define TPB 128
+#define GBS 1024*1024*8
+#define SFL 100
 
 /* Size of each GPU buffer; n+m will be allocated */
-int gib_buf_size = 1024*1024*8;
+int gib_buf_size = GBS;
 
 const char env_error_str[] =
 	"Your environment is not completely set. Please indicate a directory "
@@ -62,7 +66,7 @@ struct gpu_context_t {
 	CUfunction checksum;
 	CUfunction recover_sparse;
 	CUfunction recover;
-	CUdeviceptr buffers;
+	CUdeviceptr buffers_d;
         AES_KEY * enRoundKeys;
         CUstream streams[NSTREAMS];
 };
@@ -102,11 +106,19 @@ int _set_encrypt_key(const unsigned char *userKey, gib_context c)
   ERROR_CHECK_FAIL(
 		   cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
   gpu_context gpu_c = (gpu_context) c->acc_context;
-  fprintf(stderr,"Size of AES_Key: %i\n",sizeof(AES_KEY));
+  /* For AES-256 there are 14 rounds The aes_key_st is created with the
+   * rd_key uint32_t array with 4 * (AES_MAXNR +1) elelements and
+   * another int membef ro the number or rounds. AES_MAXNR is defined
+   * to be 14 in the openssl aes.h header file. The correct total is
+   * 244 bytes.
+   */
+  fprintf(stderr,"Size of AES Round Keys structure: %i\n",sizeof(AES_KEY));
   gpu_c->enRoundKeys = malloc(sizeof(AES_KEY));
+  /* For AES-256 the second argument is the numberr of bits: 256 */
   int r = AES_set_encrypt_key(userKey, 256,
 			      gpu_c->enRoundKeys);
-  /*
+
+  /* Created in gib_cuda_checksum.cu for now
   const int IV_LENGTH = 16;
   const unsigned char *iv = {
     0x00U, 0x01U, 0x02U, 0x03,
@@ -158,13 +170,13 @@ gib_cuda_compile(int n, int m, char *filename)
 		exit(1);
 	}
 
-	char src_filename[100];
+	char src_filename[SFL];
 	sprintf(src_filename, "%s/gib_cuda_checksum.cu",
 		getenv("GIB_SRC_DIR"));
 	char *const argv[] = {
 		executable,
 		"--ptx",
-		"-lineinfo",
+		"--device-debug",
 		argv1,
 		argv2,
 		src_filename,
@@ -307,7 +319,7 @@ gib_init_cuda(int n, int m, gib_context *c)
 	ERROR_CHECK_FAIL(cuModuleGetGlobal(&F_d, NULL, gpu_c->module, "F_d"));
 	ERROR_CHECK_FAIL(cuMemcpy(F_d, F, m*n));
 #if !GIB_USE_MMAP
-	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers), (n+m)*gib_buf_size));
+	ERROR_CHECK_FAIL(cuMemAlloc(&(gpu_c->buffers_d), (n+m)*gib_buf_size));
 #endif
 	ERROR_CHECK_FAIL(cuCtxPopCurrent((&gpu_c->pCtx)));
 	free(filename);
@@ -331,32 +343,33 @@ _gib_destroy(gib_context c)
 		exit(EXIT_FAILURE);
 	}
 	gpu_context gpu_c = (gpu_context) c->acc_context;
+	// HWH: I think we need to do this.
 #ifndef DEF_STREAM
 	while(0) for (int i = 0; i < NSTREAMS; ++i)
 	  ERROR_CHECK_FAIL( cuStreamDestroy(&gpu_c->streams[i]) );
 #endif
 	ERROR_CHECK_FAIL(cuModuleUnload(gpu_c->module));
-	//ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+	// HWH: I think we need to do this.
+	//ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers_d));
 	ERROR_CHECK_FAIL(cuCtxDestroy(gpu_c->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
+_gib_alloc(void **buffers_h, size_t buf_size, size_t *ld, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	gpu_context gpu_c = (gpu_context) c->acc_context;
 	while(0) fprintf(stderr,"allocating buffers. %i, %i, %i, %i\n", c->n,c->m,buf_size,NSTREAMS);
-	ERROR_CHECK_FAIL(cuMemAllocHost(buffers, (c->n+c->m)*buf_size*NSTREAMS));
-	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers, (c->n+c->m)*buf_size*NSTREAMS));
-	fprintf(stderr,"gpu_c->buffers: %p\n",gpu_c->buffers);
-	//	ERROR_CHECK_FAIL(cudaMalloc(gpu_c->buffers, (c->n+c->m)*buf_size));
-
+	// HWH: We allocate buffers for each stream.
+	ERROR_CHECK_FAIL(cuMemAllocHost(buffers_h, (c->n+c->m)*buf_size*NSTREAMS));
+	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers_d, (c->n+c->m)*buf_size*NSTREAMS));
+	fprintf(stderr,"gpu_c->buffers_d: %p\n",gpu_c->buffers_d);
 	*ld = buf_size;
 	//ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->stride, sizeof(int)));
 	//ERROR_CHECK_FAIL(cuMemcpy(gpu_c->stride,ld, sizeof(int)));
-	// Create NSTREAMS CUDA streams
+	// HWH: Create NSTREAMS CUDA streams
 #ifndef DEF_STREAM
 	for (int i = 0; i < NSTREAMS; ++i)
 	  ERROR_CHECK_FAIL( cuStreamCreate(&gpu_c->streams[i], CU_STREAM_NON_BLOCKING) );
@@ -367,12 +380,12 @@ _gib_alloc(void **buffers, size_t buf_size, size_t *ld, gib_context c)
 }
 
 static int
-_gib_free(void *buffers, gib_context c)
+_gib_free(void *buffers_h, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	gpu_context gpu_c = (gpu_context) c->acc_context;
-	ERROR_CHECK_FAIL(cuMemFreeHost(buffers));
+	ERROR_CHECK_FAIL(cuMemFreeHost(buffers_h));
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
@@ -384,14 +397,14 @@ _gib_free_gpu(gib_context c)
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
 	gpu_context gpu_c = (gpu_context) c->acc_context;
-	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers));
+	ERROR_CHECK_FAIL(cuMemFree(gpu_c->buffers_d));
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
+_gib_generate(void *buffers_h, size_t buf_size, int stream, gib_context c)
 {
 	ERROR_CHECK_FAIL(
 		cuCtxPushCurrent(((gpu_context)(c->acc_context))->pCtx));
@@ -401,21 +414,21 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 	 * allocated.  Split it into several noncontiguous jobs.
 	 */
 	if (buf_size > gib_buf_size) {
-		int rc = gib_generate_nc(buffers, buf_size, buf_size, c);
+		int rc = gib_generate_nc(buffers_h, buf_size, buf_size, c);
 		ERROR_CHECK_FAIL(
 			cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 		return rc;
 	}
 
-	int nthreads_per_block = 128;
+	int nthreads_per_block = TPB;
 	int fetch_size = sizeof(int)*nthreads_per_block;
 	int nblocks = (buf_size + fetch_size - 1)/fetch_size;
 	gpu_context gpu_c = (gpu_context) c->acc_context;
+	// HWH: stripe_offset is the start of this threads buffer
 	size_t stripe_offset = (size_t)stream * (c->n+c->m)*buf_size;
-	void *ptr_h = (void*)((char *)buffers + stripe_offset);
-	CUdeviceptr *ptr_d = (CUdeviceptr)((char *)gpu_c->buffers + stripe_offset);
+	void *ptr_h = (void*)((char *)buffers_h + stripe_offset);
+	CUdeviceptr *ptr_d = (CUdeviceptr)((char *)gpu_c->buffers_d + stripe_offset);
 
-	// int stripe_offset = i * (c->n+c->m)*buf_size;
 	/* Copy the buffers to memory */
 	ERROR_CHECK_FAIL(cuMemcpyAsync(ptr_d,
 				       ptr_h,
@@ -425,7 +438,7 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 	int offset = 0;
 	int key_bits = 256;
 	size_t blocks = buf_size/(4*4); // blocks of 4 32-bit words
-	/* Configure and launch AES encryption */
+	/* HWH: Configure and launch AES encryption */
 	ERROR_CHECK_FAIL(
 			 cuFuncSetBlockShape(gpu_c->aes_gcm_encrypt, nthreads_per_block, 1,
 					     1));
@@ -446,13 +459,13 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 					1, gpu_c->streams[stream],  /* shared mem, stream */
 					args,  /* arguments */
 					0));
-	/* Copy the encrypted K shards back to host. */
+	/* HWH: Copy the encrypted K shards back to host. */
 	ERROR_CHECK_FAIL(cuMemcpyAsync(ptr_h,
 				       ptr_d,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
 
-	/* Configure and launch erasure coding */
+	/* HWH: Configure and launch erasure coding */
 	while(0) fprintf(stderr,"Launching checksum kernel on GPU. nblocks: %d, nthreads/block: %d\n",
 		nblocks,nthreads_per_block);
 
@@ -472,14 +485,14 @@ _gib_generate(void *buffers, size_t buf_size, int stream, gib_context c)
 				       tmp_d,
 				       (c->m)*buf_size,
 				       gpu_c->streams[stream]));
-	stream = (stream + 1) % NSTREAMS;
+	//stream = (stream + 1) % NSTREAMS;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));
 	return GIB_SUC;
 }
 
 static int
-_gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
+_gib_recover(void *buffers_h, size_t buf_size, int *buf_ids, int recover_last,
 	    gib_context c)
 {
 	ERROR_CHECK_FAIL(
@@ -528,8 +541,8 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 	/* Copy the buffers to memory */
 	while(0) fprintf(stderr,"copying buffers. %i, %i, %i\n", c->n,c->m,buf_size);
 	ERROR_CHECK_FAIL(
-			 cuMemcpyAsync((void*)gpu_c->buffers,
-				       (void*)buffers,
+			 cuMemcpyAsync((void*)gpu_c->buffers_d,
+				       (void*)buffers_h,
 				       (c->n)*buf_size,
 				       gpu_c->streams[stream]));
 	/* Authenticated Encryption repair:
@@ -542,7 +555,7 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 	 */
 	int offset = 0;
 	void *ptr;
-	ptr = (void *)(gpu_c->buffers);
+	ptr = (void *)(gpu_c->buffers_d);
 
 	ERROR_CHECK_FAIL(cuParamSetv(gpu_c->recover, offset, &ptr,
 				     sizeof(ptr)));
@@ -583,8 +596,8 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
 					args,  /* arguments */
 					0));
 #endif
-	CUdeviceptr tmp_d = (void*)((char *)gpu_c->buffers + c->n*buf_size);
-	void *tmp_h = (void *)((unsigned char *)(buffers) + c->n*buf_size);
+	CUdeviceptr tmp_d = (void*)((char *)gpu_c->buffers_d + c->n*buf_size);
+	void *tmp_h = (void *)((unsigned char *)(buffers_h) + c->n*buf_size);
 	while(0) fprintf(stderr,"Copying back from gib_recover\n.");
 	ERROR_CHECK_FAIL(
 			 cuMemcpyAsync((void*)tmp_h,
@@ -608,17 +621,17 @@ _gib_recover(void *buffers, size_t buf_size, int *buf_ids, int recover_last,
    Bring this to life for that implementation only.
  */
 static int
-_gib_generate_nc(void *buffers, size_t buf_size, int work_size,
+_gib_generate_nc(void *buffers_h, size_t buf_size, int work_size,
 		gib_context c)
 {
-	return gib_cpu_generate_nc(buffers, buf_size, work_size, c);
+	return gib_cpu_generate_nc(buffers_h, buf_size, work_size, c);
 }
 
 static int
-_gib_recover_nc(void *buffers, size_t buf_size, int work_size, int *buf_ids,
+_gib_recover_nc(void *buffers_h, size_t buf_size, int work_size, int *buf_ids,
 		int recover_last, gib_context c)
 {
-	return gib_cpu_recover_nc(buffers, buf_size, work_size, buf_ids,
+	return gib_cpu_recover_nc(buffers_h, buf_size, work_size, buf_ids,
 				  recover_last, c);
 }
 

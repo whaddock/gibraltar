@@ -17,16 +17,19 @@ TESTS=\
 # Expect CUDA library include directive to already be in CPPFLAGS,
 # e.g. -I/usr/local/cuda/include
 # nvcc -I../inc -I/usr/local/cuda/include/ --default-stream per-thread pthread_test.cu -o pthread_test -L../src/ -lgibraltar --gpu-architecture=sm_35 -L/usr/local/cuda/lib64/ -lcuda
-CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ -std=c++11
-CPPFLAGS += -DNSTREAMS=2
+CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ 
+#-std=c++14 --debug
+CPPFLAGS += -DNSTREAMS=2 -Wpedantic -Wall -Wextra
 # CPPFLAGS += -DDEF_STREAM
 # Expect CUDA library link directive to already be in LDFLAGS,
 # .e.g. -L/usr/local/cuda/lib
-LDFLAGS += -Llib/ -L/usr/local/cuda/lib64 -L../src/
+LDFLAGS += -Llib/ -L/usr/local/cuda/lib64 -L../src/ -L/usr/lib64 
+#-fsanitize=address,undefined 
 
-CFLAGS += -Wall -std=c11 -Iopenssl
-CFLAGS += -DNSTREAMS=2
-LDLIBS=-lcuda -lcudart -ljerasure 
+CFLAGS += -Wall -Wextra -Wpedantic -std=c11 -Iopenssl 
+#-fsanitize=address,undefined 
+CFLAGS += -DNSTREAMS=2 -Iinc/ -I/usr/local/cuda/include/
+LDLIBS=-lcuda -lcudart -ljerasure -lpthread
 
 all: lib/libjerasure.a src/libgibraltar.a $(TESTS)
 

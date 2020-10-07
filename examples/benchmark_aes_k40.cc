@@ -38,8 +38,9 @@ using namespace std;
 #ifndef SHARDS
 #define SHARDS 24
 #endif
+#define ITERS 1000
 
-const unsigned char *key = (unsigned char *)"F19142998DC13512706DADB657029C2AFF3FFB1901FC0D667E2294C66A2FBC24";
+const unsigned char *key = (unsigned char *)"F19142998DC13512706DADB657029C2AFF3FFB1901FC0D667E2294C66A2FBC2";
 
 double
 etime(void)
@@ -68,14 +69,14 @@ checksumThread(void *ptr, size_t size, int stream, gib_context_t * gc, int count
 int
 main(int argc, char **argv)
 {
-	int iters = 100;
+	int iters = ITERS;
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
 	printf("%%      n        m datasize chk_tput rec_tput chk_tput rec_tput chk_tput rec_tput\n");
 
 	for (int m = SHARDS; m <= SHARDS; m++) {
-		for (int n = min_test; n <= max_test; n++) {
+	  for (int n = min_test; n <= max_test; n = n + 5) {
 			printf("%8i %8i ", n, m);
 				double chk_time, prep_time;
 				prep_time = -1*etime();
@@ -124,12 +125,14 @@ main(int argc, char **argv)
 				} while(0);
 
 				double size_mb = buf_size * n / 1024.0 / 1024.0;
-				printf("%8i ", buf_size * n);
+				printf("%8lu ", buf_size * n);
 
 				printf("%8.3lf %8.3lf \n", size_mb * iters / (chk_time * 1000), chk_time);
 				printf("Create buffers time: %8.3lf\n", prep_time);
 
 				prep_time = -1*etime();
+				gib_free_gpu(gc);
+				gib_free(data, gc);
 				gib_destroy(gc);
 				printf("gib_desroy time: %8.3lf\n", prep_time + etime());	
 		}
