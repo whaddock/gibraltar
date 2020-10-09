@@ -17,8 +17,9 @@ TESTS=\
 # Expect CUDA library include directive to already be in CPPFLAGS,
 # e.g. -I/usr/local/cuda/include
 # nvcc -I../inc -I/usr/local/cuda/include/ --default-stream per-thread pthread_test.cu -o pthread_test -L../src/ -lgibraltar --gpu-architecture=sm_35 -L/usr/local/cuda/lib64/ -lcuda
-CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ 
-#-std=c++14 --debug
+# Use newer version of C++
+# scl enable devtoolset-7 bash
+CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ -std=c++14 
 CPPFLAGS += -DNSTREAMS=2 -Wpedantic -Wall -Wextra
 # CPPFLAGS += -DDEF_STREAM
 # Expect CUDA library link directive to already be in LDFLAGS,

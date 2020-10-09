@@ -112,7 +112,7 @@ int _set_encrypt_key(const unsigned char *userKey, gib_context c)
    * to be 14 in the openssl aes.h header file. The correct total is
    * 244 bytes.
    */
-  fprintf(stderr,"Size of AES Round Keys structure: %i\n",sizeof(AES_KEY));
+  //fprintf(stderr,"Size of AES Round Keys structure: %i\n",sizeof(AES_KEY));
   gpu_c->enRoundKeys = malloc(sizeof(AES_KEY));
   /* For AES-256 the second argument is the numberr of bits: 256 */
   int r = AES_set_encrypt_key(userKey, 256,
@@ -132,8 +132,8 @@ int _set_encrypt_key(const unsigned char *userKey, gib_context c)
   int bytes;
   CUdeviceptr aes_key_d, iv_d;
   ERROR_CHECK_FAIL(cuModuleGetGlobal(&aes_key_d, &bytes, gpu_c->module, "aes_key_d"));
-  fprintf(stderr,"aes_key_d: %p\n",aes_key_d);
-  fprintf(stderr,"Size of aes_key_d: %u\n",bytes);
+  //fprintf(stderr,"aes_key_d: %p\n",aes_key_d);
+  //fprintf(stderr,"Size of aes_key_d: %u\n",bytes);
   ERROR_CHECK_FAIL(cuMemcpy(aes_key_d, gpu_c->enRoundKeys, sizeof(AES_KEY)));
   //ERROR_CHECK_FAIL(cuModuleGetGlobal(&iv_d, NULL, gpu_c->module, "iv"));
   //ERROR_CHECK_FAIL(cuMemcpy(iv_d, iv, IV_LENGTH));
@@ -365,7 +365,7 @@ _gib_alloc(void **buffers_h, size_t buf_size, size_t *ld, gib_context c)
 	// HWH: We allocate buffers for each stream.
 	ERROR_CHECK_FAIL(cuMemAllocHost(buffers_h, (c->n+c->m)*buf_size*NSTREAMS));
 	ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->buffers_d, (c->n+c->m)*buf_size*NSTREAMS));
-	fprintf(stderr,"gpu_c->buffers_d: %p\n",gpu_c->buffers_d);
+	//fprintf(stderr,"gpu_c->buffers_d: %p\n",gpu_c->buffers_d);
 	*ld = buf_size;
 	//ERROR_CHECK_FAIL(cuMemAlloc(&gpu_c->stride, sizeof(int)));
 	//ERROR_CHECK_FAIL(cuMemcpy(gpu_c->stride,ld, sizeof(int)));
@@ -485,6 +485,8 @@ _gib_generate(void *buffers_h, size_t buf_size, int stream, gib_context c)
 				       tmp_d,
 				       (c->m)*buf_size,
 				       gpu_c->streams[stream]));
+        ERROR_CHECK_FAIL(
+                        cuStreamSynchronize(gpu_c->streams[stream]));
 	//stream = (stream + 1) % NSTREAMS;
 	ERROR_CHECK_FAIL(
 		cuCtxPopCurrent(&((gpu_context)(c->acc_context))->pCtx));

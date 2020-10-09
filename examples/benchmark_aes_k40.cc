@@ -70,13 +70,19 @@ int
 main(int argc, char **argv)
 {
 	int iters = ITERS;
+	int m = SHARDS;
+	int n = min_test;
+	/* If n, m or iters is provided on the command line, they will be used. */
+	if (argc >= 1) n = atoi(argv[1]);
+	if (argc >= 2) m = atoi(argv[2]);
+	if (argc >= 3) iters = atoi(argv[3]);
 	printf("%% Speed test with correctness checks\n");
 	printf("%% datasize is n*bufsize, or the total size of all data buffers\n");
 	printf("%%                          cuda     cuda     cpu      cpu      jerasure jerasure\n");
 	printf("%%      n        m datasize chk_tput rec_tput chk_tput rec_tput chk_tput rec_tput\n");
 
-	for (int m = SHARDS; m <= SHARDS; m++) {
-	  for (int n = min_test; n <= max_test; n = n + 5) {
+	//for (; m <= m; m++) {
+	  //for (; n <= n; n = n + 5) {
 			printf("%8i %8i ", n, m);
 				double chk_time, prep_time;
 				prep_time = -1*etime();
@@ -127,7 +133,7 @@ main(int argc, char **argv)
 				double size_mb = buf_size * n / 1024.0 / 1024.0;
 				printf("%8lu ", buf_size * n);
 
-				printf("%8.3lf %8.3lf \n", size_mb * iters / (chk_time * 1000), chk_time);
+				printf("%8.3lf GiB/s, %8.3lf total seconds \n", size_mb * iters / (chk_time * 1024), chk_time);
 				printf("Create buffers time: %8.3lf\n", prep_time);
 
 				prep_time = -1*etime();
@@ -135,8 +141,8 @@ main(int argc, char **argv)
 				gib_free(data, gc);
 				gib_destroy(gc);
 				printf("gib_desroy time: %8.3lf\n", prep_time + etime());	
-		}
-	}
+		//}
+	//}
 	return 0;
 }
 
