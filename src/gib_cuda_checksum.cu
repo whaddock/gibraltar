@@ -160,10 +160,7 @@ __global__ void gib_checksum_d(shmem_bytes *bufs, int buf_size) {
 #undef RAID6_FIX
 #endif
   for (int i = 0; i < M; i++) 
-      bufs[rank+buf_size/SOF*(i+N)].f = 0;
-    //bufs[rank+buf_size/SOF*(i+N)].f = out[i].f;
-  //bufs[rank].f = 0;
-  //__syncthreads();
+    bufs[rank+buf_size/SOF*(i+N)].f = out[i].f;
 }
 
 __global__ void __cuda_aes_16b_encrypt__(
