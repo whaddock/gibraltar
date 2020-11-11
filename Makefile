@@ -12,6 +12,7 @@ SRC=\
 TESTS=\
 	examples/benchmark		\
 	examples/benchmark_aes_k40	\
+	examples/benchmark_isa-l_k40		\
 	examples/sweeping_test		\
 
 # Expect CUDA library include directive to already be in CPPFLAGS,
@@ -19,7 +20,8 @@ TESTS=\
 # nvcc -I../inc -I/usr/local/cuda/include/ --default-stream per-thread pthread_test.cu -o pthread_test -L../src/ -lgibraltar --gpu-architecture=sm_35 -L/usr/local/cuda/lib64/ -lcuda
 # Use newer version of C++
 # scl enable devtoolset-7 bash
-CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ -std=c++14 
+CPPFLAGS += -Iinc/ -I/usr/local/cuda/include/ -std=c++14
+CPPFLAGS += -I/usr/include/ -lisal
 CPPFLAGS += -DNSTREAMS=2 -Wpedantic -Wall -Wextra
 # CPPFLAGS += -DDEF_STREAM
 # Expect CUDA library link directive to already be in LDFLAGS,
